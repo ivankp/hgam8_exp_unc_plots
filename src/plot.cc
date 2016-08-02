@@ -14,7 +14,6 @@
 #include <TAxis.h>
 #include <TColor.h>
 #include <TH1.h>
-#include <TGraphAsymmErrors.h>
 #include <TLegend.h>
 #include <TLatex.h>
 
@@ -23,7 +22,10 @@
 
 using namespace std;
 
-std::unique_ptr<TGraphAsymmErrors> make_band(
+using h_t = TH1F;
+using h_ptr = std::unique_ptr<h_t>;
+
+h_ptr make_band(
   const vector<double>& bins,
   const vector<double>& height
 ) {
@@ -33,18 +35,37 @@ std::unique_ptr<TGraphAsymmErrors> make_band(
   for (unsigned i=0; i<nbins-1; ++i)
     bins_width[i] = bins[i+1]-bins[i];
 
-  TH1F *h = new TH1F("","",nbins-1,bins.data());
+  h_t *h = new h_t("","",nbins-1,bins.data());
+  for (unsigned i=0, n=height.size(); i<n; ++i) {
+    h->SetBinError(i+1,height[i]);
+  }
   h->SetStats(0);
+  h->SetMarkerStyle(0);
+  h->SetLineWidth(1); // gives legend color boxes outlines
 
-  auto *g = new TGraphAsymmErrors(nbins,bins.data(),cent.data(),
-                                  0,bins_width.data(),
-                                  height.data(),height.data());
+  return h_ptr(h);
+}
 
-  g->SetHistogram(h);
-  g->GetXaxis()->SetRangeUser(bins[0],bins.back()+bins_width.back());
-  g->SetLineWidth(1); // gives legend color boxes outlines
-
-  return std::unique_ptr<TGraphAsymmErrors>(g);
+array<h_ptr,2> make_outline(h_t* h) {
+  auto* xa = h->GetXaxis();
+  const unsigned nbins = h->GetNbinsX();
+  array<h_ptr,2> hh {
+    h_ptr(new h_t("","",nbins,xa->GetXbins()->GetArray())),
+    h_ptr(new h_t("","",nbins,xa->GetXbins()->GetArray()))
+  };
+  for (unsigned i=1; i<=nbins; ++i) {
+    const auto x = h->GetBinError(i);
+    get<0>(hh)->SetBinContent(i, x);
+    get<1>(hh)->SetBinContent(i,-x);
+  }
+  for (auto& a : hh) {
+    a->SetMarkerStyle(0);
+    a->SetLineWidth(1);
+    a->SetLineColor(1);
+    a->SetLineStyle(h->GetLineStyle());
+    a->SetLineColor(h->GetLineColor());
+  }
+  return std::move(hh);
 }
 
 constexpr unsigned ncol = 5;
@@ -128,7 +149,13 @@ int main(int argc, char const *argv[]) {
     if (unsigned(max)%2) max += 1;
     max = std::min(max,8.);
     ya->SetRangeUser(-max,max);
-    total->Draw("a2");
+    total->SetLineColor(1);
+    total->SetLineStyle(1);
+    total->Draw("E2");
+
+    auto total_outline = make_outline(total.get());
+    get<0>(total_outline)->Draw("same");
+    get<1>(total_outline)->Draw("same");
 
     if (var.first.substr(0,5)=="Njets") {
       for (unsigned i=0, n=get<0>(var.second).size()-1; ; ++i) {
@@ -149,18 +176,33 @@ int main(int argc, char const *argv[]) {
 
     auto lce = make_band(get<0>(var.second),get<2>(var.second));
     lce->SetFillColor(kAzure-8);
-    // lce->SetLineStyle(2);
-    lce->Draw("2");
+    lce->SetLineColor(1);
+    lce->SetLineStyle(2);
+    lce->Draw("sameE2");
+
+    auto lce_outline = make_outline(lce.get());
+    get<0>(lce_outline)->Draw("same");
+    get<1>(lce_outline)->Draw("same");
 
     auto lc = make_band(get<0>(var.second),get<3>(var.second));
     lc->SetFillColor(kAzure+8);
-    // lc->SetLineStyle(3);
-    lc->Draw("2");
+    lc->SetLineColor(1);
+    lc->SetLineStyle(3);
+    lc->Draw("sameE2");
+
+    auto lc_outline = make_outline(lc.get());
+    get<0>(lc_outline)->Draw("same");
+    get<1>(lc_outline)->Draw("same");
 
     auto lumi = make_band(get<0>(var.second),get<4>(var.second));
     lumi->SetFillColor(kAzure-6);
-    // lumi->SetLineStyle(4);
-    lumi->Draw("2");
+    lumi->SetLineColor(1);
+    lumi->SetLineStyle(1);
+    lumi->Draw("sameE2");
+
+    auto lumi_outline = make_outline(lumi.get());
+    get<0>(lumi_outline)->Draw("same");
+    get<1>(lumi_outline)->Draw("same");
 
     gPad->RedrawAxis();
 
