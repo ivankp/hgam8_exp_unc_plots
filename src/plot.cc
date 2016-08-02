@@ -88,18 +88,18 @@ int main(int argc, char const *argv[]) {
     {"yAbs_yy", "|y_{#gamma#gamma}|"},
     {"dphi_jj", "|#Delta#phi_{jj}|"},
     {"pT_j1", "p_{T}^{j1} [GeV]"},
-    {"Njets50", "N_{jets}^{#geq50 GeV}"},
+    {"Njets50", "N_{jets}^{ #geq50 GeV}"},
     {"cosTS", "|cos #theta*|"},
     {"m_jj", "m_{jj} [GeV]"},
     {"dy_jj", "|y_{jj}|"},
     {"fid_incl", "Inclusive"},
     {"fid_VBF", "VBF enhanced"},
-    {"fid_lep", "N_{lept} #geq 1"}
+    {"fid_lep1", "N_{lept} #geq 1"}
   };
 
   TCanvas canv;
-  canv.SetBottomMargin(0.12);
-  canv.SetRightMargin(0.03);
+  canv.SetBottomMargin(0.13);
+  canv.SetRightMargin(0.035);
   canv.SetTopMargin(0.03);
   canv.SaveAs("uncert.pdf[");
 
@@ -115,14 +115,13 @@ int main(int argc, char const *argv[]) {
     TAxis *xa = total->GetXaxis(),
           *ya = total->GetYaxis();
     xa->SetTitle(tex[var.first].c_str());
-    xa->SetTitleOffset(1.05);
-    ya->SetTitleOffset(1.);
-    ya->SetTitle(
-      "Fractional uncertainty on cross section, #Delta#sigma_{fid}/#sigma_{fid}");
-    xa->SetTitleSize(0.05);
-    xa->SetLabelSize(0.04);
-    ya->SetTitleSize(0.045);
-    ya->SetLabelSize(0.04);
+    xa->SetTitleOffset(0.95);
+    ya->SetTitleOffset(0.75);
+    ya->SetTitle("#Delta#sigma_{fid}/#sigma_{fid}");
+    xa->SetTitleSize(0.06);
+    xa->SetLabelSize(0.05);
+    ya->SetTitleSize(0.065);
+    ya->SetLabelSize(0.05);
 
     double max = ceil( abs( *max_element(
       get<1>(var.second).begin(),get<1>(var.second).end() ) ) );
@@ -143,7 +142,7 @@ int main(int argc, char const *argv[]) {
           break;
         }
       }
-      xa->SetLabelSize(0.06);
+      xa->SetLabelSize(0.08);
     } else if (var.first.substr(0,4)=="fid_") {
       xa->SetBinLabel(1,"");
     }
@@ -178,11 +177,11 @@ int main(int argc, char const *argv[]) {
     l.SetTextColor(1);
     l.SetNDC();
     l.SetTextFont(72);
-    l.DrawLatex(0.15,0.87,"ATLAS");
+    l.DrawLatex(0.135,0.87,"ATLAS");
     l.SetTextFont(42);
-    l.DrawLatex(0.27,0.87,"Internal");
+    l.DrawLatex(0.255,0.87,"Internal");
     l.SetTextFont(42);
-    l.DrawLatex(0.15,0.80,
+    l.DrawLatex(0.135,0.80,
       "#it{H} #rightarrow #gamma#gamma, "
       "#sqrt{#it{s}} = 13 TeV, 13.3 fb^{-1}"
     );

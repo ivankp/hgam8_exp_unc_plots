@@ -1,8 +1,8 @@
 CXX := g++
 STD := -std=c++11
 DF := $(STD)
-CF := $(STD) -Wall -O3 -flto
-LF := $(STD) -flto
+CF := $(STD) -Wall # -O3 -flto
+LF := $(STD) #-flto
 
 ROOT_CFLAGS := $(shell root-config --cflags)
 ROOT_LIBS   := $(shell root-config --libs)
