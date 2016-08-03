@@ -20,6 +20,8 @@
 #define test(var) \
   std::cout <<"\033[36m"<< #var <<"\033[0m"<< " = " << var << std::endl;
 
+#define burst
+
 using namespace std;
 
 using h_t = TH1F;
@@ -122,7 +124,9 @@ int main(int argc, char const *argv[]) {
   canv.SetBottomMargin(0.13);
   canv.SetRightMargin(0.035);
   canv.SetTopMargin(0.03);
-  canv.SaveAs("uncert.pdf[");
+  #ifndef burst
+    canv.SaveAs("uncert.pdf[");
+  #endif
 
   gPad->SetTickx();
   gPad->SetTicky();
@@ -144,10 +148,12 @@ int main(int argc, char const *argv[]) {
     ya->SetTitleSize(0.065);
     ya->SetLabelSize(0.05);
 
-    double max = ceil( abs( *max_element(
-      get<1>(var.second).begin(),get<1>(var.second).end() ) ) );
-    if (unsigned(max)%2) max += 1;
-    max = std::min(max,8.);
+    int max = ceil( abs( *max_element(
+      get<1>(var.second).begin(),get<1>(var.second).end() ) )
+      + ( total->GetNbinsX()>1 ? 0.5 : 0. )
+    );
+    if (max%2 && max!=1) max += 1;
+    max = std::min(max,8);
     ya->SetRangeUser(-max,max);
     total->SetLineColor(1);
     total->SetLineStyle(1);
@@ -206,12 +212,16 @@ int main(int argc, char const *argv[]) {
 
     gPad->RedrawAxis();
 
-    TLegend leg(0.58,0.725,0.96,0.925);
+    // TLegend leg(0.58,0.725,0.96,0.925);
+    TLegend leg(0.12,0.1525,0.72,0.2525);
     leg.SetLineWidth(0);
-    leg.SetFillColorAlpha(0,0);
+    leg.SetFillColor(0);
+    leg.SetFillStyle(0);
+    leg.SetTextSize(0.041);
+    leg.SetNColumns(2);
     leg.AddEntry(lumi .get(),"Luminosity","f");
-    leg.AddEntry(lc   .get(),"#oplus Correction factor syst.","f");
-    leg.AddEntry(lce  .get(),"#oplus Signal extraction syst.","f");
+    leg.AddEntry(lc   .get(),"#oplus Correction factor","f");
+    leg.AddEntry(lce  .get(),"#oplus Signal extraction","f");
     leg.AddEntry(total.get(),"#oplus Statistics","f");
     leg.Draw();
 
@@ -219,18 +229,27 @@ int main(int argc, char const *argv[]) {
     l.SetTextColor(1);
     l.SetNDC();
     l.SetTextFont(72);
-    l.DrawLatex(0.135,0.87,"ATLAS");
+    l.DrawLatex(0.135,0.83,"ATLAS");
     l.SetTextFont(42);
-    l.DrawLatex(0.255,0.87,"Internal");
+    l.DrawLatex(0.255,0.83,"Internal");
     l.SetTextFont(42);
-    l.DrawLatex(0.135,0.80,
+    l.DrawLatex(0.135,0.89,
       "#it{H} #rightarrow #gamma#gamma, "
-      "#sqrt{#it{s}} = 13 TeV, 13.3 fb^{-1}"
+      "#sqrt{#it{s}} = 13 TeV, 13.3 fb^{-1}, "
+      "m_{H} = 125.09 GeV"
     );
+    l.SetTextFont(42);
+    // l.DrawLatex(0.255,0.83,"m_{H} = 125.09 GeV");
 
-    canv.SaveAs("uncert.pdf");
+    #ifdef burst
+      canv.SaveAs((var.first+".pdf").c_str());
+    #else
+      canv.SaveAs("uncert.pdf");
+    #endif
   }
-  canv.SaveAs("uncert.pdf]");
+  #ifndef burst
+    canv.SaveAs("uncert.pdf]");
+  #endif
 
   return 0;
 }
