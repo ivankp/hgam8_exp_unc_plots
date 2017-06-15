@@ -6,9 +6,11 @@
 #include <vector>
 #include <array>
 #include <unordered_map>
+#include <map>
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <stdexcept>
 
 #include <TCanvas.h>
 #include <TAxis.h>
@@ -17,27 +19,29 @@
 #include <TLegend.h>
 #include <TLatex.h>
 
-#define test(var) \
+#include "string.hh"
+#include "algebra.hh"
+#include "type_traits.hh"
+
+#define TEST(var) \
   std::cout <<"\033[36m"<< #var <<"\033[0m"<< " = " << var << std::endl;
 
-#define burst
-
-using namespace std;
+using std::cout;
+using std::cerr;
+using std::endl;
+using std::get;
+using std::tie;
+using namespace ivanp;
+using namespace ivanp::math;
 
 using h_t = TH1F;
 using h_ptr = std::unique_ptr<h_t>;
 
 h_ptr make_band(
-  const vector<double>& bins,
-  const vector<double>& height
+  const std::vector<double>& bins,
+  const std::vector<double>& height
 ) {
-  const unsigned nbins = bins.size();
-  vector<double> bins_width(nbins), cent(nbins,0);
-
-  for (unsigned i=0; i<nbins-1; ++i)
-    bins_width[i] = bins[i+1]-bins[i];
-
-  h_t *h = new h_t("","",nbins-1,bins.data());
+  h_t *h = new h_t("","",bins.size()-1,bins.data());
   for (unsigned i=0, n=height.size(); i<n; ++i) {
     h->SetBinError(i+1,height[i]);
   }
@@ -48,10 +52,10 @@ h_ptr make_band(
   return h_ptr(h);
 }
 
-array<h_ptr,2> make_outline(h_t* h) {
+std::array<h_ptr,2> make_outline(h_t* h) {
   auto* xa = h->GetXaxis();
   const unsigned nbins = h->GetNbinsX();
-  array<h_ptr,2> hh {
+  std::array<h_ptr,2> hh {
     h_ptr(new h_t("","",nbins,xa->GetXbins()->GetArray())),
     h_ptr(new h_t("","",nbins,xa->GetXbins()->GetArray()))
   };
@@ -70,51 +74,112 @@ array<h_ptr,2> make_outline(h_t* h) {
   return std::move(hh);
 }
 
-constexpr unsigned ncol = 5;
-
-int main(int argc, char const *argv[]) {
-  if (argc>3 || (argc==2 && !strcmp(argv[1],"-h"))) {
-    cout << "usage: " << argv[0] << " [input_file]" << endl;
-    cout << "Default input_file is bands.dat" << endl;
+int main(int argc, char* argv[]) {
+  if (argc==1) {
+    cout << "usage: " << argv[0] << " input.HepData" << endl;
     return 1;
   }
+  bool burst = false, corr = false;
+  for (int i=2; i<argc; ++i) {
+    if (!strcmp(argv[i],"burst")) burst = true;
+    else if (!strcmp(argv[i],"corr")) corr = true;
+  }
 
-  vector<pair<string,array<vector<double>,ncol>>> vars;
+  std::ifstream hepdata(argv[1]);
 
-  bool hit_var = false;
-  unsigned col = 0;
+  struct bin {
+    double min, max, xsec, stat;
+    std::map<std::string,double> unc;
+  };
+  std::map<std::string,std::vector<bin>> vars;
 
-  ifstream dat(argc==1 ? "bands.dat" : argv[1]);
-  if (dat.is_open()) {
-    string str;
-    while ( dat >> str ) {
-      if (str=="var") {
-        hit_var = true;
-      } else if (hit_var) {
-        vars.emplace_back(move(str), array<vector<double>,ncol>());
-        hit_var = false;
-        col = 0;
-      } else if (col<ncol) {
-        vars.back().second[col++].emplace_back(stold(str));
-        if (col==ncol) col = 0;
+  auto it = vars.end();
+  unsigned line_n = 0;
+  for (std::string line, tok; std::getline(hepdata,line); ) {
+    ++line_n;
+    if (it==vars.end()) {
+      if (starts_with(line,"*dataset:")) {
+        const auto emp = vars.emplace(std::piecewise_construct,
+          std::forward_as_tuple(line.substr(line.rfind('/')+1)),
+          tie()
+        );
+        if (!emp.second) {
+          cerr << "repeated variable: " << emp.first->first << endl;
+          continue;
+        }
+        it = emp.first;
       }
+    } else {
+      const bool star = starts_with(line,"*");
+      if (it->second.size()==0 && star) continue;
+      if (line.size() && !star) {
+        it->second.emplace_back();
+        bin& b = it->second.back();
+
+        const auto d1 = line.find(';');
+        tok = line.substr(0,d1);
+        if (starts_with(tok,">=")) tok.erase(0,2);
+        std::stringstream ss(tok);
+        ss >> b.min >> tok >> b.max;
+        if (tok!="TO") b.max = b.min;
+
+        const auto d2 = line.find('(',d1+1);
+        ss.clear();
+        ss.str(line.substr(d1+1,d2-d1-1));
+        ss >> b.xsec >> tok >> b.stat;
+        if (tok!="+-") throw std::runtime_error("missing +- in bin line");
+
+        const char* cstr = line.c_str();
+        for (size_t i=d2+1; line[i]!=';'; ) {
+          // cout << cstr+i << endl;
+          if (!starts_with(cstr+i,"DSYS")) throw std::runtime_error(
+            "missing DSYS in bin line");
+          const auto eq  = line.find('=',i);
+          const auto col = line.find(':',eq+1);
+          auto end = line.find(',',col+1);
+          if (end==std::string::npos) end = line.find(')',col+1);
+          const size_t sep = std::find(cstr+eq+1,cstr+col,',')-cstr;
+
+          const auto unc = line.substr(col+1,end-col-1);
+          if (!b.unc.emplace(
+            unc,
+            sep==col // one value
+            ? std::stod(line.substr(eq+1,col-eq-1))
+            : std::max( std::abs(std::stod(line.substr(eq +1,sep-eq -1))),
+                        std::abs(std::stod(line.substr(sep+1,col-sep-1))) )
+          ).second) throw std::runtime_error(cat(
+            "duplicate uncert source \'",unc,"\' on line ",line_n));
+
+          i = end+1;
+        }
+
+      } else it = vars.end();
     }
-    dat.close();
-  } else {
-    cout << "Unable to open file " << argv[1] << endl;
-    return 1;
   }
 
-  unordered_map<string,string> tex {
-    {"Njets", "N_{jets}"},
+  // ================================================================
+
+  static const std::unordered_map<std::string,std::string> tex {
+    {"N_j_30", "N_{jets}"},
+    {"N_j_50", "N_{jets}^{ #geq50 GeV}"},
     {"pT_yy", "p_{T}^{#gamma#gamma} [GeV]"},
+    {"pTt_yy", "p_{Tt}^{#gamma#gamma} [GeV]"},
+    {"pT_yyjj_30", "p_{T}^{#gamma#gammajj} [GeV]"},
+    {"HT_30", "H_{T} [GeV]"},
     {"yAbs_yy", "|y_{#gamma#gamma}|"},
-    {"dphi_jj", "|#Delta#phi_{jj}|"},
-    {"pT_j1", "p_{T}^{j1} [GeV]"},
-    {"Njets50", "N_{jets}^{ #geq50 GeV}"},
-    {"cosTS", "|cos #theta*|"},
-    {"m_jj", "m_{jj} [GeV]"},
-    {"dy_jj", "|y_{jj}|"},
+    {"yAbs_j1_30", "|y_{j1}|"},
+    {"yAbs_j2_30", "|y_{j2}|"},
+    {"Dphi_j_j_30", "|#Delta#phi_{jj}|"},
+    {"Dphi_j_j_30_signed", "#Delta#phi_{jj}"},
+    {"Dphi_yy_jj_30", "|#Delta#phi_{#gamma#gamma,jj}|"},
+    {"pT_j1_30", "p_{T}^{j1} [GeV]"},
+    {"pT_j2_30", "p_{T}^{j2} [GeV]"},
+    {"cosTS_yy", "|cos #theta*|"},
+    {"m_jj_30", "m_{jj} [GeV]"},
+    {"Dy_j_j_30", "|#Deltay_{jj}|"},
+    {"Dy_y_y", "|#Deltay_{#gamma#gamma}|"},
+    {"maxTau_yyj_30", "max #tau_{#gamma#gammaj} [GeV]"},
+    {"sumTau_yyj_30", "sum #tau_{#gamma#gammaj} [GeV]"},
     {"fid_incl", "Inclusive"},
     {"fid_VBF", "VBF enhanced"},
     {"fid_lep1", "N_{lept} #geq 1"}
@@ -124,22 +189,97 @@ int main(int argc, char const *argv[]) {
   canv.SetBottomMargin(0.13);
   canv.SetRightMargin(0.035);
   canv.SetTopMargin(0.03);
-  #ifndef burst
-    canv.SaveAs("uncert.pdf[");
-  #endif
+  if (!burst) canv.SaveAs("uncert.pdf[");
 
   gPad->SetTickx();
   gPad->SetTicky();
 
+  // bool skip = true;
   for (const auto& var : vars) {
     cout << var.first << endl;
+    // if (var.first != "Dy_y_y") continue;
+    // if (var.first == "Dy_j_j_30") skip = false;
+    // if (skip) continue;
 
-    auto total = make_band(get<0>(var.second),get<1>(var.second));
-    total->SetFillColor(17);
-    total->SetTitle("");
-    TAxis *xa = total->GetXaxis(),
-          *ya = total->GetYaxis();
-    xa->SetTitle(tex[var.first].c_str());
+    // collect bin edges
+    auto edges = var.second | [](const auto& b){ return b.min; };
+    edges.push_back(var.second.back().max);
+
+    for (auto x : edges) { cout <<' '<< x; } cout << endl;
+
+    // collect uncertainties
+    auto uncs = var.second | [](const auto& b){
+      return std::vector<double> {
+        b.stat,
+        b.unc.at("fit"),
+        [&b](){
+          double x = 0;
+          for (const auto& unc : b.unc) {
+            if (unc.first=="lumi" || unc.first=="fit") continue;
+            x += sq(unc.second);
+          }
+          return std::sqrt(x);
+        }(),
+        b.unc.at("lumi")
+      };
+    };
+
+    for (auto& unc : uncs) {
+      for (auto x : unc)
+        cout << ' ' << x;
+      cout << endl;
+    }
+
+    // partial sums in quadrature
+    for (auto& unc : uncs)
+      for (unsigned i=unc.size()-1; i; )
+        --i, unc[i] = qadd(unc[i],unc[i+1]);
+
+    // divide by cross section
+    tie(uncs,var.second) * [](auto& unc, const auto& b){
+      for (unsigned i=unc.size(); i; ) --i, unc[i] /= b.xsec;
+    };
+
+    cout << endl;
+    for (auto& unc : uncs) {
+      for (auto x : unc)
+        cout << ' ' << x;
+      cout << endl;
+    }
+
+    transpose_container_t<decltype(uncs)> tuncs(uncs.front().size());
+    for (unsigned i=0; i<uncs.front().size(); ++i) {
+      tuncs[i].resize(uncs.size());
+      for (unsigned j=0; j<uncs.size(); ++j)
+        tuncs[i][j] = uncs[j][i];
+    }
+
+    static const std::vector<std::array<int,3>> styles {
+      {{17,1,1}},
+      {{kAzure-8,1,2}},
+      {{kAzure+8,1,3}},
+      {{kAzure-6,1,1}}
+    };
+
+    const auto bands = tie(tuncs,styles) *
+      [&edges](const auto& unc, const auto& style){
+        auto band = make_band(edges, unc);
+        band->SetFillColor(get<0>(style));
+        band->SetLineColor(get<1>(style));
+        band->SetLineStyle(get<2>(style));
+        auto outline = make_outline(band.get());
+        return std::array<h_ptr,3> {
+          std::move(band),
+          std::move(get<0>(outline)),
+          std::move(get<1>(outline))
+        };
+      };
+
+    auto& total = bands.front();
+    get<0>(total)->SetTitle("");
+    TAxis *xa = get<0>(total)->GetXaxis(),
+          *ya = get<0>(total)->GetYaxis();
+    xa->SetTitle(tex.at(var.first).c_str());
     xa->SetTitleOffset(0.95);
     ya->SetTitleOffset(0.75);
     ya->SetTitle("#Delta#sigma_{fid}/#sigma_{fid}");
@@ -148,81 +288,53 @@ int main(int argc, char const *argv[]) {
     ya->SetTitleSize(0.065);
     ya->SetLabelSize(0.05);
 
-    int max = ceil( abs( *max_element(
-      get<1>(var.second).begin(),get<1>(var.second).end() ) )
-      + ( total->GetNbinsX()>1 ? 0.5 : 0. )
+    int max = std::ceil( std::abs( *std::max_element(
+      tuncs.front().begin(), tuncs.front().end() ) )
+      + ( tuncs.front().size()>1 ? 0.5 : 0. )
     );
     if (max%2 && max!=1) max += 1;
     max = std::min(max,8);
     ya->SetRangeUser(-max,max);
-    total->SetLineColor(1);
-    total->SetLineStyle(1);
-    total->Draw("E2");
+    get<0>(total)->Draw("E2");
 
-    auto total_outline = make_outline(total.get());
-    get<0>(total_outline)->Draw("same");
-    get<1>(total_outline)->Draw("same");
+    get<1>(total)->Draw("same");
+    get<2>(total)->Draw("same");
 
-    if (var.first.substr(0,5)=="Njets") {
-      for (unsigned i=0, n=get<0>(var.second).size()-1; ; ++i) {
-        stringstream ss;
-        if (n-i>1) {
-          ss << " = " << ceil(get<0>(var.second)[i]);
-          xa->SetBinLabel(i+1,ss.str().c_str());
-        } else {
-          ss << " #geq " << ceil(get<0>(var.second)[i]);
-          xa->SetBinLabel(i+1,ss.str().c_str());
-          break;
-        }
+    if (starts_with(var.first,"N_j_")) {
+      for (unsigned i=0, n=edges.size()-1; i<n; ++i) {
+        xa->SetBinLabel( i+1, cat(
+          n-i>1 ? " = " : " #geq ", std::ceil(edges[i])
+        ).c_str() );
       }
       xa->SetLabelSize(0.08);
     } else if (var.first.substr(0,4)=="fid_") {
       xa->SetBinLabel(1,"");
     }
 
-    auto lce = make_band(get<0>(var.second),get<2>(var.second));
-    lce->SetFillColor(kAzure-8);
-    lce->SetLineColor(1);
-    lce->SetLineStyle(2);
-    lce->Draw("sameE2");
-
-    auto lce_outline = make_outline(lce.get());
-    get<0>(lce_outline)->Draw("same");
-    get<1>(lce_outline)->Draw("same");
-
-    auto lc = make_band(get<0>(var.second),get<3>(var.second));
-    lc->SetFillColor(kAzure+8);
-    lc->SetLineColor(1);
-    lc->SetLineStyle(3);
-    lc->Draw("sameE2");
-
-    auto lc_outline = make_outline(lc.get());
-    get<0>(lc_outline)->Draw("same");
-    get<1>(lc_outline)->Draw("same");
-
-    auto lumi = make_band(get<0>(var.second),get<4>(var.second));
-    lumi->SetFillColor(kAzure-6);
-    lumi->SetLineColor(1);
-    lumi->SetLineStyle(1);
-    lumi->Draw("sameE2");
-
-    auto lumi_outline = make_outline(lumi.get());
-    get<0>(lumi_outline)->Draw("same");
-    get<1>(lumi_outline)->Draw("same");
+    for (unsigned i=1; i<bands.size(); ++i) {
+      get<0>(bands[i])->Draw("sameE2");
+      get<1>(bands[i])->Draw("same");
+      get<2>(bands[i])->Draw("same");
+    }
 
     gPad->RedrawAxis();
 
-    // TLegend leg(0.58,0.725,0.96,0.925);
+    static const std::vector<const char*> labels {
+      "#oplus Statistics",
+      "#oplus Signal extraction",
+      "#oplus Correction factor",
+      "Luminosity"
+    };
+
     TLegend leg(0.12,0.1525,0.72,0.2525);
     leg.SetLineWidth(0);
     leg.SetFillColor(0);
     leg.SetFillStyle(0);
     leg.SetTextSize(0.041);
     leg.SetNColumns(2);
-    leg.AddEntry(lumi .get(),"Luminosity","f");
-    leg.AddEntry(lc   .get(),"#oplus Correction factor","f");
-    leg.AddEntry(lce  .get(),"#oplus Signal extraction","f");
-    leg.AddEntry(total.get(),"#oplus Statistics","f");
+    direct_product([&leg](const auto& band, const char* lbl){
+      leg.AddEntry(get<0>(band).get(),lbl,"f");
+    }, bands.rbegin(), bands.rend(), labels.rbegin());
     leg.Draw();
 
     TLatex l;
@@ -232,24 +344,16 @@ int main(int argc, char const *argv[]) {
     l.DrawLatex(0.135,0.83,"ATLAS");
     l.SetTextFont(42);
     l.DrawLatex(0.255,0.83,"Internal");
+    // l.DrawLatex(0.255,0.83,"Preliminary");
     l.SetTextFont(42);
     l.DrawLatex(0.135,0.89,
       "#it{H} #rightarrow #gamma#gamma, "
-      "#sqrt{#it{s}} = 13 TeV, 13.3 fb^{-1}, "
+      "#sqrt{#it{s}} = 13 TeV, 36.1 fb^{-1}, "
       "m_{H} = 125.09 GeV"
     );
     l.SetTextFont(42);
-    // l.DrawLatex(0.255,0.83,"m_{H} = 125.09 GeV");
 
-    #ifdef burst
-      canv.SaveAs((var.first+".pdf").c_str());
-    #else
-      canv.SaveAs("uncert.pdf");
-    #endif
+    canv.SaveAs(burst ? (var.first+".pdf").c_str() : "uncert.pdf");
   }
-  #ifndef burst
-    canv.SaveAs("uncert.pdf]");
-  #endif
-
-  return 0;
+  if (!burst) canv.SaveAs("uncert.pdf]");
 }

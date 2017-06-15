@@ -1,8 +1,7 @@
-CXX := g++
-STD := -std=c++11
-DF := $(STD)
-CF := $(STD) -Wall # -O3 -flto
-LF := $(STD) #-flto
+STD := -std=c++14
+DF := $(STD) -Isrc
+CF := $(STD) -Wall -Isrc -O -g -fmax-errors=3
+LF := $(STD)
 
 ROOT_CFLAGS := $(shell root-config --cflags)
 ROOT_LIBS   := $(shell root-config --libs)
