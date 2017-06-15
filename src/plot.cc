@@ -116,10 +116,12 @@ int main(int argc, char* argv[]) {
 
         const auto d1 = line.find(';');
         tok = line.substr(0,d1);
-        if (starts_with(tok,">=")) tok.erase(0,2);
+        bool geq;
+        if ((geq = starts_with(tok,">="))) tok.erase(0,2);
         std::stringstream ss(tok);
         ss >> b.min >> tok >> b.max;
-        if (tok!="TO") b.max = b.min;
+        if (geq) b.max = b.min+1;
+        else if (tok!="TO") b.max = b.min;
 
         const auto d2 = line.find('(',d1+1);
         ss.clear();
