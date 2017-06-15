@@ -1,7 +1,6 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
-#include <utility>
 #include <algorithm>
 #include <vector>
 #include <array>
@@ -85,14 +84,13 @@ int main(int argc, char* argv[]) {
     else if (!strcmp(argv[i],"corr")) corr = true;
   }
 
-  std::ifstream hepdata(argv[1]);
-
   struct bin {
     double min, max, xsec, stat;
     std::map<std::string,double> unc;
   };
   std::map<std::string,std::vector<bin>> vars;
 
+  { std::ifstream hepdata(argv[1]);
   auto it = vars.end();
   unsigned line_n = 0;
   for (std::string line, tok; std::getline(hepdata,line); ) {
@@ -155,7 +153,7 @@ int main(int argc, char* argv[]) {
 
       } else it = vars.end();
     }
-  }
+  }}
 
   // ================================================================
 
@@ -197,22 +195,16 @@ int main(int argc, char* argv[]) {
   // bool skip = true;
   for (const auto& var : vars) {
     cout << var.first << endl;
-    // if (var.first != "Dy_y_y") continue;
-    // if (var.first == "Dy_j_j_30") skip = false;
-    // if (skip) continue;
 
     // collect bin edges
     auto edges = var.second | [](const auto& b){ return b.min; };
     edges.push_back(var.second.back().max);
 
-    for (auto x : edges) { cout <<' '<< x; } cout << endl;
-
     // collect uncertainties
     auto uncs = var.second | [](const auto& b){
       return std::vector<double> {
-        b.stat,
-        b.unc.at("fit"),
-        [&b](){
+        b.unc.at("lumi"),
+        [&b]{
           double x = 0;
           for (const auto& unc : b.unc) {
             if (unc.first=="lumi" || unc.first=="fit") continue;
@@ -220,32 +212,33 @@ int main(int argc, char* argv[]) {
           }
           return std::sqrt(x);
         }(),
-        b.unc.at("lumi")
+        b.unc.at("fit"),
+        b.stat
       };
     };
 
-    for (auto& unc : uncs) {
-      for (auto x : unc)
-        cout << ' ' << x;
-      cout << endl;
-    }
+    // for (auto& unc : uncs) {
+    //   for (auto x : unc)
+    //     cout << ' ' << x;
+    //   cout << endl;
+    // }
 
     // partial sums in quadrature
     for (auto& unc : uncs)
-      for (unsigned i=unc.size()-1; i; )
-        --i, unc[i] = qadd(unc[i],unc[i+1]);
+      for (unsigned i=1; i<unc.size(); ++i)
+        unc[i] = qadd(unc[i],unc[i-1]);
 
     // divide by cross section
     tie(uncs,var.second) * [](auto& unc, const auto& b){
-      for (unsigned i=unc.size(); i; ) --i, unc[i] /= b.xsec;
+      for (auto& u : unc) u /= b.xsec;
     };
 
-    cout << endl;
-    for (auto& unc : uncs) {
-      for (auto x : unc)
-        cout << ' ' << x;
-      cout << endl;
-    }
+    // cout << endl;
+    // for (auto& unc : uncs) {
+    //   for (auto x : unc)
+    //     cout << ' ' << x;
+    //   cout << endl;
+    // }
 
     transpose_container_t<decltype(uncs)> tuncs(uncs.front().size());
     for (unsigned i=0; i<uncs.front().size(); ++i) {
@@ -255,10 +248,10 @@ int main(int argc, char* argv[]) {
     }
 
     static const std::vector<std::array<int,3>> styles {
-      {{17,1,1}},
-      {{kAzure-8,1,2}},
+      {{kAzure-6,1,1}},
       {{kAzure+8,1,3}},
-      {{kAzure-6,1,1}}
+      {{kAzure-8,1,2}},
+      {{17,1,1}}
     };
 
     const auto bands = tie(tuncs,styles) *
@@ -275,7 +268,7 @@ int main(int argc, char* argv[]) {
         };
       };
 
-    auto& total = bands.front();
+    const auto& total = bands.back();
     get<0>(total)->SetTitle("");
     TAxis *xa = get<0>(total)->GetXaxis(),
           *ya = get<0>(total)->GetYaxis();
@@ -289,8 +282,8 @@ int main(int argc, char* argv[]) {
     ya->SetLabelSize(0.05);
 
     int max = std::ceil( std::abs( *std::max_element(
-      tuncs.front().begin(), tuncs.front().end() ) )
-      + ( tuncs.front().size()>1 ? 0.5 : 0. )
+      tuncs.back().begin(), tuncs.back().end() ) )
+      + ( tuncs.back().size()>1 ? 0.5 : 0. )
     );
     if (max%2 && max!=1) max += 1;
     max = std::min(max,8);
@@ -311,19 +304,20 @@ int main(int argc, char* argv[]) {
       xa->SetBinLabel(1,"");
     }
 
-    for (unsigned i=1; i<bands.size(); ++i) {
-      get<0>(bands[i])->Draw("sameE2");
-      get<1>(bands[i])->Draw("same");
-      get<2>(bands[i])->Draw("same");
+    // draw in oposite order, so that smaller values can be seen
+    for (unsigned i=bands.size()-1; i; ) {
+      --i;
+      for (unsigned j=0, n=bands[i].size(); j<n; ++j)
+        bands[i][j]->Draw("E2same" + (j ? 2 : 0));
     }
 
     gPad->RedrawAxis();
 
     static const std::vector<const char*> labels {
-      "#oplus Statistics",
-      "#oplus Signal extraction",
+      "Luminosity",
       "#oplus Correction factor",
-      "Luminosity"
+      "#oplus Signal extraction",
+      "#oplus Statistics"
     };
 
     TLegend leg(0.12,0.1525,0.72,0.2525);
@@ -332,9 +326,9 @@ int main(int argc, char* argv[]) {
     leg.SetFillStyle(0);
     leg.SetTextSize(0.041);
     leg.SetNColumns(2);
-    direct_product([&leg](const auto& band, const char* lbl){
+    tie(bands,labels) * [&leg](const auto& band, const char* lbl){
       leg.AddEntry(get<0>(band).get(),lbl,"f");
-    }, bands.rbegin(), bands.rend(), labels.rbegin());
+    };
     leg.Draw();
 
     TLatex l;
