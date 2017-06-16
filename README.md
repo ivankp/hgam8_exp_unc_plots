@@ -8,7 +8,13 @@ Program options:
    By default, plots showing lumi, correction factor, fit, and stat
    uncertainties are produced.
 3. `burst` -- instead of a single file, output plots in individual files for
-   each variable
+   each variable.
+
+Output:
+* Without `burst` `uncert.pdf` file is produced.
+* With `burst` files named `VAR.pdf` are produced, where `VAR` is the name of
+  the variable.
+* With `corr` suffix `_corr` is added to the file(s) name(s).
 
 Usage examples:
 ```
