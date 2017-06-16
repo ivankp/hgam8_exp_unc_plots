@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <numeric>
 #include <unordered_map>
 #include <map>
 #include <cmath>
@@ -18,6 +19,7 @@
 #include "string.hh"
 #include "algebra.hh"
 #include "type_traits.hh"
+#include "lists.hh"
 
 #define TEST(var) \
   std::cout <<"\033[36m"<< #var <<"\033[0m"<< " = " << var << std::endl;
@@ -31,6 +33,13 @@ using std::get;
 using std::tie;
 using namespace ivanp;
 using namespace ivanp::math;
+
+template <typename T>
+struct less_deref {
+  constexpr bool operator()(const T* lhs, const T* rhs) const {
+    return (*lhs) < (*rhs);
+  }
+};
 
 using h_t = TH1F;
 using h_ptr = std::unique_ptr<h_t>;
@@ -188,50 +197,84 @@ int main(int argc, char* argv[]) {
   canv.SetBottomMargin(0.13);
   canv.SetRightMargin(0.035);
   canv.SetTopMargin(0.03);
-  if (!burst) canv.SaveAs("uncert.pdf[");
+  if (!burst) canv.SaveAs(cat("uncert",corr  ? "_corr" : "",".pdf[").c_str());
 
   gPad->SetTickx();
   gPad->SetTicky();
 
-  // bool skip = true;
   for (const auto& var : vars) {
     cout << var.first << endl;
 
-    var.second | [](const auto& b){
-      auto unc = b.unc | [](const auto& unc){
-        return unc.first=="lumi" || unc.first=="fit" ? nullptr : &unc;
-      };
-      // https://en.wikipedia.org/wiki/Erase%E2%80%93remove_idiom
-      unc.erase(std::remove(unc.begin(),unc.end(),nullptr),unc.end());
-      std::sort(unc.begin(),unc.end(),
-        [](const auto& a, const auto& b){ return a->second > b->second; });
-      return std::make_pair(b.min, std::move(unc));
-    } | [](const auto& bin){
-      cout << bin.first << endl;
-      for (unsigned i=0; i<std::min((unsigned)bin.second.size(),5u); ++i) {
-        cout <<"  "<< bin.second[i]->first << ' ' << bin.second[i]->second << endl;
+    std::vector<const std::string*> corr_selected, corr_other;
+
+    if (corr) {
+      std::vector<std::pair<const std::string*,std::vector<double>>> corr_uncs;
+      for (const auto& bin : var.second) {
+        for (const auto& unc : bin.unc) {
+          const auto& name = unc.first;
+          if (name=="lumi" || name=="fit") continue;
+          auto it = std::find_if(corr_uncs.begin(),corr_uncs.end(),
+            [&name](const auto& x){ return name == *x.first; });
+          if (it==corr_uncs.end()) {
+            corr_uncs.emplace_back(&name,decltype(it->second){});
+            it = --corr_uncs.end();
+          }
+          it->second.push_back(unc.second/bin.xsec);
+        }
       }
-    };
+      auto corr_uncs_sorted = corr_uncs | [](const auto& x){
+        return std::make_pair(x.first,
+          std::accumulate(x.second.begin(),x.second.end(),0.,
+            [](auto total, auto next){ return total + sq(next); }));
+      };
+      std::sort(corr_uncs_sorted.begin(),corr_uncs_sorted.end(),
+        [](const auto& a, const auto& b){ return a.second > b.second; });
+
+      const unsigned n = std::min(4u,(unsigned)corr_uncs_sorted.size());
+      corr_selected.reserve(n);
+      for (unsigned i=n; i; )
+        --i, corr_selected.emplace_back(corr_uncs_sorted[i].first);
+      if (corr_uncs_sorted.size()>n) {
+        corr_other.reserve(corr_uncs_sorted.size()-n);
+        for (unsigned i=n; i<corr_uncs_sorted.size(); ++i)
+          corr_other.emplace_back(corr_uncs_sorted[i].first);
+      }
+
+      // for (const auto* x : corr_selected)
+      //   cout <<"  "<< *x << endl;
+    }
 
     // collect bin edges
-    auto edges = var.second | [](const auto& b){ return b.min; };
-    edges.push_back(var.second.back().max);
+    const auto edges = ( var.second | [](const auto& b){ return b.min; } )
+                     << var.second.back().max;
 
     // collect uncertainties
-    auto uncs = var.second | [](const auto& b){
-      return std::vector<double> {
-        b.unc.at("lumi"),
-        [&b]{
-          double x = 0;
-          for (const auto& unc : b.unc) {
-            if (unc.first=="lumi" || unc.first=="fit") continue;
-            x += sq(unc.second);
-          }
-          return std::sqrt(x);
-        }(),
-        b.unc.at("fit"),
-        b.stat
-      };
+    auto uncs = var.second | [&](const auto& b){
+      if (!corr) {
+        return std::vector<double> {
+          b.unc.at("lumi"),
+          [&b]{
+            double x = 0;
+            for (const auto& unc : b.unc) {
+              if (unc.first=="lumi" || unc.first=="fit") continue;
+              x += sq(unc.second);
+            }
+            return std::sqrt(x);
+          }(),
+          b.unc.at("fit"),
+          b.stat
+        };
+      } else {
+        cout << b.min << endl;
+        return ( corr_selected | [&b](const auto& s){
+          const auto err = b.unc.at(*s);
+          cout <<"  "<< *s <<' '<< err << endl;
+          return err;
+        } ) << std::sqrt(std::accumulate(
+          corr_other.begin(),corr_other.end(),0.,
+          [&b](auto total, const auto* s){ return total + sq(b.unc.at(*s)); }
+        ));
+      }
     };
 
     // for (auto& unc : uncs) {
@@ -257,7 +300,8 @@ int main(int argc, char* argv[]) {
     //   cout << endl;
     // }
 
-    transpose_container_t<decltype(uncs)> tuncs(uncs.front().size());
+    // transpose_container_t<decltype(uncs)> tuncs(uncs.front().size());
+    std::vector<std::vector<double>> tuncs(uncs.front().size());
     for (unsigned i=0; i<uncs.front().size(); ++i) {
       tuncs[i].resize(uncs.size());
       for (unsigned j=0; j<uncs.size(); ++j)
@@ -270,8 +314,15 @@ int main(int argc, char* argv[]) {
       {{kAzure-8,1,2}},
       {{17,1,1}}
     };
+    static const std::vector<std::array<int,3>> styles_corr {
+      {{kOrange+9,1,1}},
+      {{kOrange+3,1,2}},
+      {{kOrange+8,1,1}},
+      {{kOrange-2,1,2}},
+      {{kOrange-9,1,1}}
+    };
 
-    const auto bands = tie(tuncs,styles) *
+    const auto bands = tie(tuncs, corr ? styles_corr : styles) *
       [&edges](const auto& unc, const auto& style){
         auto band = make_band(edges, unc);
         band->SetFillColor(get<0>(style));
@@ -330,7 +381,7 @@ int main(int argc, char* argv[]) {
 
     gPad->RedrawAxis();
 
-    static const std::vector<const char*> labels {
+    static const std::vector<std::string> labels {
       "Luminosity",
       "#oplus Correction factor",
       "#oplus Signal extraction",
@@ -343,9 +394,13 @@ int main(int argc, char* argv[]) {
     leg.SetFillStyle(0);
     leg.SetTextSize(0.041);
     leg.SetNColumns(2);
-    tie(bands,labels) * [&leg](const auto& band, const char* lbl){
-      leg.AddEntry(get<0>(band).get(),lbl,"f");
-    };
+    tie(bands,
+        !corr ? labels : (corr_selected | [i=0](auto* s) mutable {
+          return (i++ ? "#oplus " : "") + *s;
+        }) << "#oplus others"
+      ) * [&leg](const auto& band, const std::string& lbl){
+        leg.AddEntry(get<0>(band).get(),lbl.c_str(),"f");
+      };
     leg.Draw();
 
     TLatex l;
@@ -364,7 +419,11 @@ int main(int argc, char* argv[]) {
     );
     l.SetTextFont(42);
 
-    canv.SaveAs(burst ? (var.first+".pdf").c_str() : "uncert.pdf");
+    // canv.SaveAs(burst ? (var.first+".pdf").c_str() : "uncert.pdf");
+    canv.SaveAs(cat(
+      burst ? var.first : "uncert",
+      corr  ? "_corr" : "",
+      ".pdf").c_str());
   }
-  if (!burst) canv.SaveAs("uncert.pdf]");
+  if (!burst) canv.SaveAs(cat("uncert",corr  ? "_corr" : "",".pdf]").c_str());
 }
