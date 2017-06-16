@@ -22,7 +22,9 @@ bool increment_ranges(const B& begins, std::pair<R1,R2>& r) {
   return false;
 }
 template <typename R1, typename R2, typename... RR1, typename... RR2, typename B>
-bool increment_ranges(const B& begins, std::pair<R1,R2>& r, std::pair<RR1,RR2>&... rr) {
+bool increment_ranges(const B& begins,
+  std::pair<R1,R2>& r, std::pair<RR1,RR2>&... rr
+) {
   ++r.first;
   if (r.first == r.second) {
     r.first = std::get<std::tuple_size<B>::value-sizeof...(rr)-1>(begins);
@@ -32,7 +34,8 @@ bool increment_ranges(const B& begins, std::pair<R1,R2>& r, std::pair<RR1,RR2>&.
 }
 
 template <typename F, typename... R1, typename... R2,
-          typename Ret = decltype(std::declval<F>()(std::declval<R1>()...))>
+          typename Ret = std::decay_t<decltype(std::declval<F>()(
+                        *std::declval<R1>()...))>>
 auto cartesian_product(F&& f, std::pair<R1,R2>... ranges)
 -> std::enable_if_t<std::is_void<Ret>::value,void>
 {
@@ -44,7 +47,8 @@ auto cartesian_product(F&& f, std::pair<R1,R2>... ranges)
 }
 
 template <typename F, typename... R1, typename... R2,
-          typename Ret = decltype(std::declval<F>()(std::declval<R1>()...))>
+          typename Ret = std::decay_t<decltype(std::declval<F>()(
+                        *std::declval<R1>()...))>>
 auto cartesian_product(F&& f, std::pair<R1,R2>... ranges)
 -> std::enable_if_t<!std::is_void<Ret>::value,std::vector<Ret>>
 {
@@ -61,8 +65,8 @@ auto cartesian_product(F&& f, std::pair<R1,R2>... ranges)
 // ==================================================================
 
 template <typename F, typename InputIt1, typename InputIt2, typename... InputIts,
-          typename Ret = decltype(std::declval<F>()(
-            *std::declval<InputIt1>(),*std::declval<InputIts>()...))>
+          typename Ret = std::decay_t<decltype(std::declval<F>()(
+            *std::declval<InputIt1>(),*std::declval<InputIts>()...))>>
 auto direct_product(F&& f, InputIt1 first, InputIt2 last, InputIts... firsts)
 -> std::enable_if_t<std::is_void<Ret>::value,void>
 {
@@ -70,8 +74,8 @@ auto direct_product(F&& f, InputIt1 first, InputIt2 last, InputIts... firsts)
 }
 
 template <typename F, typename InputIt1, typename InputIt2, typename... InputIts,
-          typename Ret = decltype(std::declval<F>()(
-            *std::declval<InputIt1>(),*std::declval<InputIts>()...))>
+          typename Ret = std::decay_t<decltype(std::declval<F>()(
+            *std::declval<InputIt1>(),*std::declval<InputIts>()...))>>
 auto direct_product(F&& f, InputIt1 first, InputIt2 last, InputIts... firsts)
 -> std::enable_if_t<!std::is_void<Ret>::value,std::vector<Ret>>
 {
@@ -99,8 +103,7 @@ inline auto apply_direct_product(const std::tuple<Args...>& args, Pred&& f,
 // ==================================================================
 
 template <typename T, size_t N, typename Pred, size_t... I>
-inline auto map(const std::array<T,N>& in, Pred f,
-                            std::index_sequence<I...>)
+inline auto map(const std::array<T,N>& in, Pred f, std::index_sequence<I...>)
 -> std::array<decltype(f(std::declval<T>())),N> {
   return { f(std::get<I>(in))... };
 }
@@ -110,8 +113,7 @@ inline auto map(const std::array<T,N>& in, Pred f) {
 }
 
 template <typename... T, typename Pred, size_t... I>
-inline auto map(const std::tuple<T...>& in, Pred f,
-                            std::index_sequence<I...>
+inline auto map(const std::tuple<T...>& in, Pred f, std::index_sequence<I...>
 ) {
   return std::make_tuple(f(std::get<I>(in))...);
 }
@@ -120,25 +122,30 @@ inline auto map(const std::tuple<T...>& in, Pred f) {
   return map(in,f,std::index_sequence_for<T...>{});
 }
 
-template <typename Cont, typename Pred>
-auto map(const Cont& in, Pred f) {
-  std::vector<std::decay_t<decltype(f(*std::begin(in)))>> out;
+template <typename Cont, typename Pred,
+          typename Ret = std::decay_t<decltype(std::declval<Pred>()(
+                        *std::begin(std::declval<Cont>())))>>
+auto map(const Cont& in, Pred f)
+-> std::enable_if_t<!std::is_void<Ret>::value,std::vector<Ret>>
+{
+  std::vector<Ret> out;
   out.reserve(in.size());
   for (const auto& x : in) out.emplace_back(f(x));
   return std::move(out);
+}
+
+template <typename Cont, typename Pred,
+          typename Ret = std::decay_t<decltype(std::declval<Pred>()(
+                        *std::begin(std::declval<Cont>())))>>
+auto map(const Cont& in, Pred f)
+-> std::enable_if_t<std::is_void<Ret>::value,void>
+{
+  for (const auto& x : in) f(x);
 }
 
 // ==================================================================
 
 }} // end namespace
-
-template <typename T, typename Pred>
-auto operator|(const std::vector<T>& in, Pred f) {
-  std::vector<std::decay_t<decltype(f(*std::begin(in)))>> out;
-  out.reserve(in.size());
-  for (const auto& x : in) out.emplace_back(f(x));
-  return std::move(out);
-}
 
 template <typename... Args, typename Pred>
 inline auto operator*(const std::tuple<Args...>& args, Pred&& f) {
@@ -147,7 +154,9 @@ inline auto operator*(const std::tuple<Args...>& args, Pred&& f) {
     std::make_index_sequence<sizeof...(Args)-1>{});
 }
 
-// template <typename Cont, typename Pred>
-// inline auto operator|(const Cont& in, Pred f) { ivanp::math::map(in,f); }
+template <typename Cont, typename Pred>
+inline auto operator|(const Cont& in, Pred f) {
+  return ivanp::math::map(in,f);
+}
 
 #endif

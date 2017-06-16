@@ -1,9 +1,6 @@
 #include <iostream>
 #include <fstream>
-#include <sstream>
 #include <algorithm>
-#include <vector>
-#include <array>
 #include <unordered_map>
 #include <map>
 #include <cmath>
@@ -24,6 +21,8 @@
 
 #define TEST(var) \
   std::cout <<"\033[36m"<< #var <<"\033[0m"<< " = " << var << std::endl;
+
+template <typename... T> struct bad_type;
 
 using std::cout;
 using std::cerr;
@@ -197,6 +196,22 @@ int main(int argc, char* argv[]) {
   // bool skip = true;
   for (const auto& var : vars) {
     cout << var.first << endl;
+
+    var.second | [](const auto& b){
+      auto unc = b.unc | [](const auto& unc){
+        return unc.first=="lumi" || unc.first=="fit" ? nullptr : &unc;
+      };
+      // https://en.wikipedia.org/wiki/Erase%E2%80%93remove_idiom
+      unc.erase(std::remove(unc.begin(),unc.end(),nullptr),unc.end());
+      std::sort(unc.begin(),unc.end(),
+        [](const auto& a, const auto& b){ return a->second > b->second; });
+      return std::make_pair(b.min, std::move(unc));
+    } | [](const auto& bin){
+      cout << bin.first << endl;
+      for (unsigned i=0; i<std::min((unsigned)bin.second.size(),5u); ++i) {
+        cout <<"  "<< bin.second[i]->first << ' ' << bin.second[i]->second << endl;
+      }
+    };
 
     // collect bin edges
     auto edges = var.second | [](const auto& b){ return b.min; };
