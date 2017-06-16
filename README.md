@@ -11,10 +11,10 @@ Program options:
    each variable.
 
 Output:
-* Without `burst` `uncert.pdf` file is produced.
-* With `burst` files named `VAR.pdf` are produced, where `VAR` is the name of
+* Without `burst`, `uncert.pdf` file is produced.
+* With `burst`, files named `VAR.pdf` are produced, where `VAR` is the name of
   the variable.
-* With `corr` suffix `_corr` is added to the file(s) name(s).
+* With `corr`, suffix `_corr` is added to the file(s) name(s).
 
 Usage examples:
 ```
