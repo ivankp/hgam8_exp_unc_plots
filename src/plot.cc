@@ -350,8 +350,9 @@ int main(int argc, char* argv[]) {
     ya->SetLabelSize(0.05);
 
     const auto max = *std::max_element(tuncs.back().begin(),tuncs.back().end());
-    auto range = std::min( std::exp2( std::ceil( std::log2(max) ) ), 8.);
-    if (max/range > 0.7) range *= 2;
+    auto range = std::exp2( std::ceil( std::log2(max) ) );
+    if (range > 8) range = 8;
+    else if (max/range > 0.7) range *= 2;
     ya->SetRangeUser(-range,range);
     get<0>(total)->Draw("E2");
 
