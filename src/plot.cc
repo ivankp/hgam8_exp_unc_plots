@@ -206,8 +206,7 @@ int main(int argc, char* argv[]) {
     cout << var.first << endl;
 
     std::vector<const std::string*> corr_selected, corr_other;
-
-    if (corr) {
+    if (corr) { // select most significant contributions
       std::vector<std::pair<const std::string*,std::vector<double>>> corr_uncs;
       for (const auto& bin : var.second) {
         for (const auto& unc : bin.unc) {
@@ -223,6 +222,7 @@ int main(int argc, char* argv[]) {
         }
       }
       auto corr_uncs_sorted = corr_uncs | [](const auto& x){
+        // sum squares of relative unc in each bin
         return std::make_pair(x.first,
           std::accumulate(x.second.begin(),x.second.end(),0.,
             [](auto total, auto next){ return total + sq(next); }));
@@ -349,13 +349,10 @@ int main(int argc, char* argv[]) {
     ya->SetTitleSize(0.065);
     ya->SetLabelSize(0.05);
 
-    int max = std::ceil( std::abs( *std::max_element(
-      tuncs.back().begin(), tuncs.back().end() ) )
-      + ( tuncs.back().size()>1 ? 0.5 : 0. )
-    );
-    if (max%2 && max!=1) max += 1;
-    max = std::min(max,8);
-    ya->SetRangeUser(-max,max);
+    const auto max = *std::max_element(tuncs.back().begin(),tuncs.back().end());
+    auto range = std::min( std::exp2( std::ceil( std::log2(max) ) ), 8.);
+    if (max/range > 0.7) range *= 2;
+    ya->SetRangeUser(-range,range);
     get<0>(total)->Draw("E2");
 
     get<1>(total)->Draw("same");
@@ -419,7 +416,6 @@ int main(int argc, char* argv[]) {
     );
     l.SetTextFont(42);
 
-    // canv.SaveAs(burst ? (var.first+".pdf").c_str() : "uncert.pdf");
     canv.SaveAs(cat(
       burst ? var.first : "uncert",
       corr  ? "_corr" : "",

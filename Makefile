@@ -1,7 +1,10 @@
 STD := -std=c++14
 DF := $(STD) -Isrc
-CF := $(STD) -Wall -Isrc -O2 -g -fmax-errors=3
+CF := $(STD) -Wall -Isrc -fmax-errors=3
+# CF += -O2 -g
+CF += -O3 -flto
 LF := $(STD)
+LF += -flto
 
 ROOT_CFLAGS := $(shell root-config --cflags)
 ROOT_LIBS   := $(shell root-config --libs)
