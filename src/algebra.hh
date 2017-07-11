@@ -67,7 +67,7 @@ auto cartesian_product(F&& f, std::pair<R1,R2>... ranges)
 template <typename F, typename InputIt1, typename InputIt2, typename... InputIts,
           typename Ret = std::decay_t<decltype(std::declval<F>()(
             *std::declval<InputIt1>(),*std::declval<InputIts>()...))>>
-auto direct_product(F&& f, InputIt1 first, InputIt2 last, InputIts... firsts)
+auto zip_map(F&& f, InputIt1 first, InputIt2 last, InputIts... firsts)
 -> std::enable_if_t<std::is_void<Ret>::value,void>
 {
   for (; first!=last; ++first) f(*first,*(firsts++)...);
@@ -76,7 +76,7 @@ auto direct_product(F&& f, InputIt1 first, InputIt2 last, InputIts... firsts)
 template <typename F, typename InputIt1, typename InputIt2, typename... InputIts,
           typename Ret = std::decay_t<decltype(std::declval<F>()(
             *std::declval<InputIt1>(),*std::declval<InputIts>()...))>>
-auto direct_product(F&& f, InputIt1 first, InputIt2 last, InputIts... firsts)
+auto zip_map(F&& f, InputIt1 first, InputIt2 last, InputIts... firsts)
 -> std::enable_if_t<!std::is_void<Ret>::value,std::vector<Ret>>
 {
   std::vector<Ret> ret;
@@ -89,10 +89,10 @@ auto direct_product(F&& f, InputIt1 first, InputIt2 last, InputIts... firsts)
 namespace detail {
 
 template <typename... Args, typename Pred, size_t... I>
-inline auto apply_direct_product(const std::tuple<Args...>& args, Pred&& f,
+inline auto apply_zip_map(const std::tuple<Args...>& args, Pred&& f,
   std::index_sequence<I...>
 ) {
-  return direct_product(std::forward<Pred>(f),
+  return zip_map(std::forward<Pred>(f),
     std::get<0>(args).begin(), std::get<0>(args).end(),
     std::get<I+1>(args).begin()...
   );
@@ -149,7 +149,7 @@ auto map(const Cont& in, Pred f)
 
 template <typename... Args, typename Pred>
 inline auto operator*(const std::tuple<Args...>& args, Pred&& f) {
-  return ivanp::math::detail::apply_direct_product(
+  return ivanp::math::detail::apply_zip_map(
     args, std::forward<Pred>(f),
     std::make_index_sequence<sizeof...(Args)-1>{});
 }

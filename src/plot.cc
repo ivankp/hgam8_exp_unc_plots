@@ -24,8 +24,6 @@
 #define TEST(var) \
   std::cout <<"\033[36m"<< #var <<"\033[0m"<< " = " << var << std::endl;
 
-template <typename... T> struct bad_type;
-
 using std::cout;
 using std::cerr;
 using std::endl;
@@ -35,11 +33,23 @@ using namespace ivanp;
 using namespace ivanp::math;
 
 template <typename T>
-struct less_deref {
-  constexpr bool operator()(const T* lhs, const T* rhs) const {
-    return (*lhs) < (*rhs);
-  }
-};
+using can_ss_t = decltype(std::stringstream() << std::declval<T>());
+template <typename T>
+std::enable_if_t<is_detected<can_ss_t,T>::value,std::string> str_if_can(T&& x)
+{ return cat(x); }
+template <typename T>
+std::enable_if_t<!is_detected<can_ss_t,T>::value,std::string> str_if_can(T&& x)
+{ return {}; }
+
+template <typename M, typename Key,
+          decltype(std::declval<M>().at(std::declval<Key>()))... >
+decltype(auto) at(M&& map, const Key& key, int line) {
+  try {
+    return map.at(key);
+  } catch (const std::out_of_range&) {
+    throw std::out_of_range(cat("map::at(",str_if_can(key),") at line ",line));
+  } catch (...) { throw; }
+}
 
 using h_t = TH1F;
 using h_ptr = std::unique_ptr<h_t>;
@@ -211,7 +221,9 @@ int main(int argc, char* argv[]) {
       for (const auto& bin : var.second) {
         for (const auto& unc : bin.unc) {
           const auto& name = unc.first;
-          if (name=="lumi" || name=="fit") continue;
+          if (name=="lumi" ||
+              name=="fit"  ||
+              name=="bkg_model_uncorr") continue;
           auto it = std::find_if(corr_uncs.begin(),corr_uncs.end(),
             [&name](const auto& x){ return name == *x.first; });
           if (it==corr_uncs.end()) {
@@ -252,16 +264,19 @@ int main(int argc, char* argv[]) {
     auto uncs = var.second | [&](const auto& b){
       if (!corr) {
         return std::vector<double> {
-          b.unc.at("lumi"),
+          at(b.unc,"lumi",__LINE__),
           [&b]{
             double x = 0;
             for (const auto& unc : b.unc) {
-              if (unc.first=="lumi" || unc.first=="fit") continue;
+              if (unc.first=="lumi" ||
+                  unc.first=="fit"  ||
+                  unc.first=="bkg_model_uncorr") continue;
               x += sq(unc.second);
             }
             return std::sqrt(x);
           }(),
-          b.unc.at("fit"),
+          qadd(at(b.unc,"fit",__LINE__),
+               at(b.unc,"bkg_model_uncorr",__LINE__)),
           b.stat
         };
       } else {
@@ -340,7 +355,7 @@ int main(int argc, char* argv[]) {
     get<0>(total)->SetTitle("");
     TAxis *xa = get<0>(total)->GetXaxis(),
           *ya = get<0>(total)->GetYaxis();
-    xa->SetTitle(tex.at(var.first).c_str());
+    xa->SetTitle(at(tex,var.first,__LINE__).c_str());
     xa->SetTitleOffset(0.95);
     ya->SetTitleOffset(0.75);
     ya->SetTitle("#Delta#sigma_{fid}/#sigma_{fid}");
