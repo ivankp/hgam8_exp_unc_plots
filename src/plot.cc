@@ -207,6 +207,7 @@ int main(int argc, char* argv[]) {
   canv.SetBottomMargin(0.13);
   canv.SetRightMargin(0.035);
   canv.SetTopMargin(0.03);
+  canv.SetLeftMargin(corr ? 0.12 : 0.1);
   if (!burst) canv.SaveAs(cat("uncert",corr  ? "_corr" : "",".pdf[").c_str());
 
   gPad->SetTickx();
@@ -357,7 +358,7 @@ int main(int argc, char* argv[]) {
           *ya = get<0>(total)->GetYaxis();
     xa->SetTitle(at(tex,var.first,__LINE__).c_str());
     xa->SetTitleOffset(0.95);
-    ya->SetTitleOffset(0.75);
+    ya->SetTitleOffset(corr ? 0.9 : 0.75);
     ya->SetTitle("#Delta#sigma_{fid}/#sigma_{fid}");
     xa->SetTitleSize(0.06);
     xa->SetLabelSize(0.05);
@@ -400,8 +401,24 @@ int main(int argc, char* argv[]) {
       "#oplus Signal extraction",
       "#oplus Statistics"
     };
+    static const auto corr_labels = [
+      labels = std::map<std::string,std::string> {
+        { "jes_pu_rho", "Jet pileup suppression" },
+        { "gen_model", "Theoretical modelling" },
+        { "jes_flav_comp", "Jet flavour dependance" },
+        { "JER", "Jet energy resolution" },
+        { "iso", "Isolation" },
+        { "pileup", "Pileup" },
+        { "trig", "Trigger" },
+        { "PID", "PID" },
+        { "prw", "prw" },
+        { "PES", "Photon energy scale" }
+      }
+    ](const std::string& str){
+      try { return labels.at(str); } catch (...) { return str; }
+    };
 
-    TLegend leg(0.12,0.1525,0.72,0.2525);
+    TLegend leg(0.12,0.1525,corr ? 0.9 : 0.72,0.2525);
     leg.SetLineWidth(0);
     leg.SetFillColor(0);
     leg.SetFillStyle(0);
@@ -409,8 +426,8 @@ int main(int argc, char* argv[]) {
     leg.SetNColumns(2);
     tie(bands,
         !corr ? labels : (corr_selected | [i=0](auto* s) mutable {
-          return (i++ ? "#oplus " : "") + *s;
-        }) << "#oplus others"
+          return cat(i++ ? "#oplus " : "",corr_labels(*s));
+        }) << "#oplus Others"
       ) * [&leg](const auto& band, const std::string& lbl){
         leg.AddEntry(get<0>(band).get(),lbl.c_str(),"f");
       };
