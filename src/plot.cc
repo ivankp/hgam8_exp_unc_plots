@@ -91,6 +91,24 @@ std::array<h_ptr,2> make_outline(h_t* h) {
   return std::move(hh);
 }
 
+template <typename Key, typename T, typename F>
+inline auto default_map(
+  std::initializer_list<std::pair<const Key, T>> init, F&& default_
+) {
+  return [
+    default_ = F{std::forward<F>(default_)},
+    map = std::unordered_map<Key,T>(init)
+  ](const Key& key){
+    try { return map.at(key); } catch (...) { return default_(key); }
+  };
+}
+template <typename Key, typename T = Key>
+inline auto default_map(
+  std::initializer_list<std::pair<const Key, T>> init
+) {
+  return default_map(init,[](const auto& x){ return x; });
+}
+
 int main(int argc, char* argv[]) {
   if (argc==1) {
     cout << "usage: " << argv[0] << " input.HepData" << endl;
@@ -178,29 +196,29 @@ int main(int argc, char* argv[]) {
   // ================================================================
 
   static const std::unordered_map<std::string,std::string> tex {
-    {"N_j_30", "N_{jets}"},
-    {"N_j_50", "N_{jets}^{ #geq50 GeV}"},
-    {"pT_yy", "p_{T}^{#gamma#gamma} [GeV]"},
-    {"pTt_yy", "p_{Tt}^{#gamma#gamma} [GeV]"},
-    {"pT_yyjj_30", "p_{T}^{#gamma#gammajj} [GeV]"},
-    {"HT_30", "H_{T} [GeV]"},
-    {"yAbs_yy", "|y_{#gamma#gamma}|"},
-    {"yAbs_j1_30", "|y_{j1}|"},
-    {"yAbs_j2_30", "|y_{j2}|"},
-    {"Dphi_j_j_30", "|#Delta#phi_{jj}|"},
-    {"Dphi_j_j_30_signed", "#Delta#phi_{jj}"},
-    {"Dphi_yy_jj_30", "|#Delta#phi_{#gamma#gamma,jj}|"},
-    {"pT_j1_30", "p_{T}^{j1} [GeV]"},
-    {"pT_j2_30", "p_{T}^{j2} [GeV]"},
-    {"cosTS_yy", "|cos #theta*|"},
-    {"m_jj_30", "m_{jj} [GeV]"},
-    {"Dy_j_j_30", "|#Deltay_{jj}|"},
-    {"Dy_y_y", "|#Deltay_{#gamma#gamma}|"},
-    {"maxTau_yyj_30", "max #tau_{#gamma#gammaj} [GeV]"},
-    {"sumTau_yyj_30", "sum #tau_{#gamma#gammaj} [GeV]"},
+    {"N_j_30", "#it{N}_{jets}"},
+    {"N_j_50", "#it{N}_{jets}^{ #geq50 GeV}"},
+    {"pT_yy", "#it{p}_{T}^{#it{#gamma#gamma}} [GeV]"},
+    {"pTt_yy", "#it{p}_{Tt}^{#it{#gamma#gamma}} [GeV]"},
+    {"pT_yyjj_30", "#it{p}_{T}^{#it{#gamma#gamma}jj} [GeV]"},
+    {"HT_30", "#it{H}_{T} [GeV]"},
+    {"yAbs_yy", "|#it{y_{#gamma#gamma}}|"},
+    {"yAbs_j1_30", "|#it{y}_{j1}|"},
+    {"yAbs_j2_30", "|#it{y}_{j2}|"},
+    {"Dphi_j_j_30", "|#Delta#it{#phi}_{jj}|"},
+    {"Dphi_j_j_30_signed", "#Delta#it{#phi}_{jj}"},
+    {"Dphi_yy_jj_30", "|#Delta#it{#phi}_{#it{#gamma#gamma},jj}|"},
+    {"pT_j1_30", "#it{p}_{T}^{j1} [GeV]"},
+    {"pT_j2_30", "#it{p}_{T}^{j2} [GeV]"},
+    {"cosTS_yy", "|cos #it{#theta}*|"},
+    {"m_jj_30", "#it{m}_{jj} [GeV]"},
+    {"Dy_j_j_30", "|#Delta#it{y}_{jj}|"},
+    {"Dy_y_y", "|#Delta#it{y}_{#gamma#gamma}|"},
+    {"maxTau_yyj_30", "max #it{#tau}_{#it{#gamma#gamma}j} [GeV]"},
+    {"sumTau_yyj_30", "sum #it{#tau}_{#it{#gamma#gamma}j} [GeV]"},
     {"fid_incl", "Inclusive"},
     {"fid_VBF", "VBF enhanced"},
-    {"fid_lep1", "N_{lept} #geq 1"}
+    {"fid_lep1", "#it{N}_{lept} #geq 1"}
   };
 
   TCanvas canv;
@@ -359,7 +377,7 @@ int main(int argc, char* argv[]) {
     xa->SetTitle(at(tex,var.first,__LINE__).c_str());
     xa->SetTitleOffset(0.95);
     ya->SetTitleOffset(corr ? 0.9 : 0.75);
-    ya->SetTitle("#Delta#sigma_{fid}/#sigma_{fid}");
+    ya->SetTitle("#it{#Delta#sigma}_{fid} / #it{#sigma}_{fid}");
     xa->SetTitleSize(0.06);
     xa->SetLabelSize(0.05);
     ya->SetTitleSize(0.065);
@@ -369,6 +387,31 @@ int main(int argc, char* argv[]) {
     auto range = std::exp2( std::ceil( std::log2(max) ) );
     if (range > 8) range = 8;
     else if (max/range > 0.7) range *= 2;
+
+    const auto ranges = default_map<std::string,double>({
+      {"N_j_30", 0.4},
+      {"N_j_50", 0.08},
+      {"pT_yy", 0.05},
+      {"pTt_yy", 0.05},
+      {"pT_yyjj_30", 0.25},
+      {"HT_30", 0.2},
+      {"yAbs_yy", 0.05},
+      {"yAbs_j1_30", 0.25},
+      {"yAbs_j2_30", 0.3},
+      {"Dphi_j_j_30", 0.25},
+      {"Dphi_j_j_30_signed", 0.25},
+      {"Dphi_yy_jj_30", 0.4},
+      {"pT_j1_30", 0.2},
+      {"pT_j2_30", 0.25},
+      {"cosTS_yy", 0.05},
+      {"m_jj_30", 0.25},
+      {"Dy_j_j_30", 0.3},
+      {"Dy_y_y", 0.05},
+      {"maxTau_yyj_30", 0.15},
+      {"sumTau_yyj_30", 0.15}
+    }, [=](const auto&){ return range; });
+    range = ranges(var.first);
+
     ya->SetRangeUser(-range,range);
     get<0>(total)->Draw("E2");
 
@@ -401,24 +444,25 @@ int main(int argc, char* argv[]) {
       "#oplus Signal extraction",
       "#oplus Statistics"
     };
-    static const auto corr_labels = [
-      labels = std::map<std::string,std::string> {
-        { "jes_pu_rho", "Jet pileup suppression" },
-        { "gen_model", "Theoretical modelling" },
-        { "jes_flav_comp", "Jet flavour dependance" },
-        { "JER", "Jet energy resolution" },
-        { "iso", "Isolation" },
-        { "pileup", "Pileup" },
-        { "trig", "Trigger" },
-        { "PID", "PID" },
-        { "prw", "prw" },
-        { "PES", "Photon energy scale" }
-      }
-    ](const std::string& str){
-      try { return labels.at(str); } catch (...) { return str; }
-    };
+    static const auto corr_labels = default_map<std::string>({
+      { "jes_pu_rho", "Jet pileup suppression" },
+      { "gen_model", "Theoretical modelling" },
+      { "jes_flav_comp", "Jet flavour dependance" },
+      { "JER", "Jet energy resolution" },
+      { "iso", "Isolation" },
+      { "pileup", "Pileup" },
+      { "trig", "Trigger" },
+      { "PID", "Photon identification" },
+      { "prw", "Pileup modelling" },
+      { "PES", "Photon energy scale" }
+    });
 
-    TLegend leg(0.12,0.1525,corr ? 0.9 : 0.72,0.2525);
+    TLegend leg(
+      0.14,
+      corr ? 0.165 : 0.1525,
+      corr ? 0.92  : 0.72,
+      corr ? 0.285 : 0.2525
+    );
     leg.SetLineWidth(0);
     leg.SetFillColor(0);
     leg.SetFillStyle(0);
@@ -437,12 +481,12 @@ int main(int argc, char* argv[]) {
     l.SetTextColor(1);
     l.SetNDC();
     l.SetTextFont(72);
-    l.DrawLatex(0.135,0.83,"ATLAS");
+    l.DrawLatex(0.15,0.83,"ATLAS");
     l.SetTextFont(42);
-    l.DrawLatex(0.255,0.83,"Internal");
+    l.DrawLatex(0.27,0.83,"Internal");
     // l.DrawLatex(0.255,0.83,"Preliminary");
     l.SetTextFont(42);
-    l.DrawLatex(0.135,0.89,
+    l.DrawLatex(0.15,0.89,
       "#it{H} #rightarrow #gamma#gamma, "
       "#sqrt{#it{s}} = 13 TeV, 36.1 fb^{-1}, "
       "m_{H} = 125.09 GeV"
