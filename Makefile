@@ -1,6 +1,6 @@
 STD := -std=c++14
-DF := $(STD) -Isrc
-CF := $(STD) -Wall -Isrc -fmax-errors=3
+DF := $(STD) -Iinclude
+CF := $(STD) -Wall -Iinclude -fmax-errors=3
 # CF += -O2 -g
 CF += -O3 -flto
 LF := $(STD)
@@ -9,8 +9,8 @@ LF += -flto
 ROOT_CFLAGS := $(shell root-config --cflags)
 ROOT_LIBS   := $(shell root-config --libs)
 
-CF += $(ROOT_CFLAGS)
-LF += $(ROOT_LIBS)
+C_plot += $(ROOT_CFLAGS)
+L_plot += $(ROOT_LIBS)
 
 SRC := src
 BIN := bin
@@ -31,6 +31,8 @@ all: $(EXES)
 ifeq (0, $(words $(findstring $(MAKECMDGOALS), $(NODEPS))))
 -include $(DEPS)
 endif
+
+bin/plot bin/read: .build/program_options.o
 
 $(DEPS): $(BLD)/%.d: $(SRC)/%.cc | $(BLD)
 	$(CXX) $(DF) -MM -MT '$(@:.d=.o)' $< -MF $@

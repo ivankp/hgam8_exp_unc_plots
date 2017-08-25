@@ -16,9 +16,10 @@
 #include <TLegend.h>
 #include <TLatex.h>
 
-#include "string.hh"
+#include "program_options.hh"
+
 #include "algebra.hh"
-#include "type_traits.hh"
+#include "type_traits2.hh"
 #include "lists.hh"
 
 #define TEST(var) \
@@ -31,6 +32,7 @@ using std::get;
 using std::tie;
 using namespace ivanp;
 using namespace ivanp::math;
+using namespace std::string_literals;
 
 template <typename T>
 using can_ss_t = decltype(std::stringstream() << std::declval<T>());
@@ -96,7 +98,7 @@ inline auto default_map(
   std::initializer_list<std::pair<const Key, T>> init, F&& default_
 ) {
   return [
-    default_ = F{std::forward<F>(default_)},
+    default_ = F(std::forward<F>(default_)),
     map = std::unordered_map<Key,T>(init)
   ](const Key& key){
     try { return map.at(key); } catch (...) { return default_(key); }
@@ -110,14 +112,19 @@ inline auto default_map(
 }
 
 int main(int argc, char* argv[]) {
-  if (argc==1) {
-    cout << "usage: " << argv[0] << " input.HepData" << endl;
-    return 1;
-  }
+  const char *data_file_name, *sig_fid_SM_file_name = nullptr;
   bool burst = false, corr = false;
-  for (int i=2; i<argc; ++i) {
-    if (!strcmp(argv[i],"burst")) burst = true;
-    else if (!strcmp(argv[i],"corr")) corr = true;
+  try {
+    using namespace ivanp::po;
+    program_options()
+      (&data_file_name,'f',"",req(),pos(1))
+      (&sig_fid_SM_file_name,"--sm","",pos(1))
+      (&burst,"--burst","")
+      (&corr,"--corr","")
+      .parse(argc,argv);
+  } catch (const std::exception& e) {
+    cerr <<"\033[31m"<< e.what() <<"\033[0m"<< endl;
+    return 1;
   }
 
   struct bin {
@@ -126,7 +133,7 @@ int main(int argc, char* argv[]) {
   };
   std::map<std::string,std::vector<bin>> vars;
 
-  { std::ifstream hepdata(argv[1]);
+  { std::ifstream hepdata(data_file_name);
   auto it = vars.end();
   unsigned line_n = 0;
   for (std::string line, tok; std::getline(hepdata,line); ) {
@@ -193,6 +200,63 @@ int main(int argc, char* argv[]) {
     }
   }}
 
+  // flip Dphi_yy_jj
+  /*
+  try {
+    auto& var = vars.at("Dphi_yy_jj_30");
+    std::swap(var[0],var[2]);
+    for (auto& bin : var)
+      std::tie(bin.min,bin.max) = std::forward_as_tuple(
+        M_PI - bin.max, M_PI - bin.min);
+    var[0].min = 0.011;
+  } catch (...) { }
+  */
+
+  // ================================================================
+
+  if (sig_fid_SM_file_name) {
+    std::unordered_map<
+      std::string,
+      std::vector<double>
+    > sig_fid_SM;
+
+    std::ifstream f(sig_fid_SM_file_name);
+    for (std::string line; std::getline(f,line); ) {
+      std::istringstream ss(std::move(line));
+      std::string var;
+      ss >> var;
+      auto& xs = sig_fid_SM[var];
+      for (double x; ss >> x; ) xs.push_back(x);
+    }
+
+    // for (const auto& x : sig_fid_SM)
+    //   cout << x.first << endl;
+
+    // std::vector<std::pair< const std::string*, bool >> cnts;
+    // cnts.reserve(vars.size());
+    // for (const auto& v : vars) cnts.emplace_back(&v.first,false);
+
+    for (auto& v : vars) {
+      try {
+        const auto& xs1 = sig_fid_SM.at(v.first);
+        auto& xs0 = v.second;
+        const auto n = xs0.size();
+
+        if (xs1.size() != n) {
+          cerr << "Unequal binning in sig_fid_SM for " << v.first << endl;
+          return 1;
+        }
+
+        for (unsigned i=0; i<n; ++i)
+          xs0[i].xsec = xs1[i];
+
+      } catch(const std::out_of_range& e) {
+        cerr << "No sig_fid_SM value for variable " << v.first << endl;
+        return 1;
+      }
+    }
+  }
+
   // ================================================================
 
   static const std::unordered_map<std::string,std::string> tex {
@@ -207,15 +271,15 @@ int main(int argc, char* argv[]) {
     {"yAbs_j2_30", "|#it{y}_{j2}|"},
     {"Dphi_j_j_30", "|#Delta#it{#phi}_{jj}|"},
     {"Dphi_j_j_30_signed", "#Delta#it{#phi}_{jj}"},
-    {"Dphi_yy_jj_30", "|#Delta#it{#phi}_{#it{#gamma#gamma},jj}|"},
+    {"Dphi_yy_jj_30", /*"#pi #minus */"|#Delta#it{#phi}_{#it{#gamma#gamma},jj}|"},
     {"pT_j1_30", "#it{p}_{T}^{j1} [GeV]"},
     {"pT_j2_30", "#it{p}_{T}^{j2} [GeV]"},
     {"cosTS_yy", "|cos #it{#theta}*|"},
     {"m_jj_30", "#it{m}_{jj} [GeV]"},
     {"Dy_j_j_30", "|#Delta#it{y}_{jj}|"},
     {"Dy_y_y", "|#Delta#it{y}_{#gamma#gamma}|"},
-    {"maxTau_yyj_30", "max #it{#tau}_{#it{#gamma#gamma}j} [GeV]"},
-    {"sumTau_yyj_30", "sum #it{#tau}_{#it{#gamma#gamma}j} [GeV]"},
+    {"maxTau_yyj_30", /*"max */"#it{#tau}_{C,j} [GeV]"},
+    {"sumTau_yyj_30", "#Sigma #it{#tau}_{C,j} [GeV]"},
     {"fid_incl", "Inclusive"},
     {"fid_VBF", "VBF enhanced"},
     {"fid_lep1", "#it{N}_{lept} #geq 1"}
@@ -233,6 +297,8 @@ int main(int argc, char* argv[]) {
 
   for (const auto& var : vars) {
     cout << var.first << endl;
+
+    // canv.SetLogx(var.first == "Dphi_yy_jj_30");
 
     std::vector<const std::string*> corr_selected, corr_other;
     if (corr) { // select most significant contributions
@@ -377,7 +443,8 @@ int main(int argc, char* argv[]) {
     xa->SetTitle(at(tex,var.first,__LINE__).c_str());
     xa->SetTitleOffset(0.95);
     ya->SetTitleOffset(corr ? 0.9 : 0.75);
-    ya->SetTitle("#it{#Delta#sigma}_{fid} / #it{#sigma}_{fid}");
+    ya->SetTitle(("#it{#Delta#sigma}_{fid} / #it{#sigma}_{fid"s
+      + (sig_fid_SM_file_name ? "SM" : "") + "}").c_str());
     xa->SetTitleSize(0.06);
     xa->SetLabelSize(0.05);
     ya->SetTitleSize(0.065);
@@ -388,29 +455,31 @@ int main(int argc, char* argv[]) {
     if (range > 8) range = 8;
     else if (max/range > 0.7) range *= 2;
 
-    const auto ranges = default_map<std::string,double>({
-      {"N_j_30", 0.4},
-      {"N_j_50", 0.08},
-      {"pT_yy", 0.05},
-      {"pTt_yy", 0.05},
-      {"pT_yyjj_30", 0.25},
-      {"HT_30", 0.2},
-      {"yAbs_yy", 0.05},
-      {"yAbs_j1_30", 0.25},
-      {"yAbs_j2_30", 0.3},
-      {"Dphi_j_j_30", 0.25},
-      {"Dphi_j_j_30_signed", 0.25},
-      {"Dphi_yy_jj_30", 0.4},
-      {"pT_j1_30", 0.2},
-      {"pT_j2_30", 0.25},
-      {"cosTS_yy", 0.05},
-      {"m_jj_30", 0.25},
-      {"Dy_j_j_30", 0.3},
-      {"Dy_y_y", 0.05},
-      {"maxTau_yyj_30", 0.15},
-      {"sumTau_yyj_30", 0.15}
-    }, [=](const auto&){ return range; });
-    range = ranges(var.first);
+    if (corr) {
+      const auto ranges = default_map<std::string,double>({
+        {"N_j_30", 0.4},
+        {"N_j_50", 0.08},
+        {"pT_yy", 0.05},
+        {"pTt_yy", 0.05},
+        {"pT_yyjj_30", 0.25},
+        {"HT_30", 0.2},
+        {"yAbs_yy", 0.05},
+        {"yAbs_j1_30", 0.25},
+        {"yAbs_j2_30", 0.3},
+        {"Dphi_j_j_30", 0.25},
+        {"Dphi_j_j_30_signed", 0.25},
+        {"Dphi_yy_jj_30", 0.4},
+        {"pT_j1_30", 0.2},
+        {"pT_j2_30", 0.25},
+        {"cosTS_yy", 0.05},
+        {"m_jj_30", 0.25},
+        {"Dy_j_j_30", 0.3},
+        {"Dy_y_y", 0.05},
+        {"maxTau_yyj_30", 0.15},
+        {"sumTau_yyj_30", 0.15}
+      }, [=](const auto&){ return range; });
+      range = ranges(var.first);
+    }
 
     ya->SetRangeUser(-range,range);
     get<0>(total)->Draw("E2");
@@ -447,7 +516,7 @@ int main(int argc, char* argv[]) {
     static const auto corr_labels = default_map<std::string>({
       { "jes_pu_rho", "Jet pileup suppression" },
       { "gen_model", "Theoretical modelling" },
-      { "jes_flav_comp", "Jet flavour dependance" },
+      { "jes_flav_comp", "Jet flavour dependence" },
       { "JER", "Jet energy resolution" },
       { "iso", "Isolation" },
       { "pileup", "Pileup" },
@@ -458,10 +527,10 @@ int main(int argc, char* argv[]) {
     });
 
     TLegend leg(
-      0.14,
-      corr ? 0.165 : 0.1525,
+      0.14, 0.165,
+      // corr ? 0.165 : 0.1525,
       corr ? 0.92  : 0.72,
-      corr ? 0.285 : 0.2525
+      corr ? 0.285 : 0.265
     );
     leg.SetLineWidth(0);
     leg.SetFillColor(0);
