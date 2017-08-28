@@ -9,6 +9,8 @@
 #include <memory>
 #include <stdexcept>
 
+#include <boost/optional.hpp>
+
 #include <TCanvas.h>
 #include <TAxis.h>
 #include <TColor.h>
@@ -21,6 +23,7 @@
 #include "algebra.hh"
 #include "type_traits2.hh"
 #include "lists.hh"
+#include "default_map.hh"
 
 #define TEST(var) \
   std::cout <<"\033[36m"<< #var <<"\033[0m"<< " = " << var << std::endl;
@@ -93,27 +96,21 @@ std::array<h_ptr,2> make_outline(h_t* h) {
   return std::move(hh);
 }
 
-template <typename Key, typename T, typename F>
-inline auto default_map(
-  std::initializer_list<std::pair<const Key, T>> init, F&& default_
-) {
-  return [
-    default_ = F(std::forward<F>(default_)),
-    map = std::unordered_map<Key,T>(init)
-  ](const Key& key){
-    try { return map.at(key); } catch (...) { return default_(key); }
-  };
-}
-template <typename Key, typename T = Key>
-inline auto default_map(
-  std::initializer_list<std::pair<const Key, T>> init
-) {
-  return default_map(init,[](const auto& x){ return x; });
-}
+struct read_to_map {
+  template <typename Map>
+  void operator()(const char* arg, boost::optional<Map>& m) {
+    m.emplace();
+    std::ifstream f(arg);
+    for ( std::pair<typename Map::key_type, typename Map::mapped_type> x;
+          f >> x.first >> x.second; ) { m->emplace(std::move(x)); }
+  }
+};
 
 int main(int argc, char* argv[]) {
   const char *data_file_name, *sig_fid_SM_file_name = nullptr;
   bool burst = false, corr = false;
+  boost::optional<std::unordered_map<std::string,double>> ranges_map;
+
   try {
     using namespace ivanp::po;
     program_options()
@@ -121,6 +118,7 @@ int main(int argc, char* argv[]) {
       (&sig_fid_SM_file_name,"--sm","",pos(1))
       (&burst,"--burst","")
       (&corr,"--corr","")
+      (&ranges_map,{"--range","-r"},"",read_to_map{})
       .parse(argc,argv);
   } catch (const std::exception& e) {
     cerr <<"\033[31m"<< e.what() <<"\033[0m"<< endl;
@@ -442,9 +440,9 @@ int main(int argc, char* argv[]) {
           *ya = get<0>(total)->GetYaxis();
     xa->SetTitle(at(tex,var.first,__LINE__).c_str());
     xa->SetTitleOffset(0.95);
-    ya->SetTitleOffset(corr ? 0.9 : 0.75);
-    ya->SetTitle(("#it{#Delta#sigma}_{fid} / #it{#sigma}_{fid"s
-      + (sig_fid_SM_file_name ? "SM" : "") + "}").c_str());
+    ya->SetTitleOffset(corr ? 0.9 : 0.7);
+    ya->SetTitle(("#it{#Delta#sigma}_{fid} / #it{#sigma}_{fid}"s
+      + (sig_fid_SM_file_name ? "^{SM}" : "")).c_str());
     xa->SetTitleSize(0.06);
     xa->SetLabelSize(0.05);
     ya->SetTitleSize(0.065);
@@ -455,30 +453,8 @@ int main(int argc, char* argv[]) {
     if (range > 8) range = 8;
     else if (max/range > 0.7) range *= 2;
 
-    if (corr) {
-      const auto ranges = default_map<std::string,double>({
-        {"N_j_30", 0.4},
-        {"N_j_50", 0.08},
-        {"pT_yy", 0.05},
-        {"pTt_yy", 0.05},
-        {"pT_yyjj_30", 0.25},
-        {"HT_30", 0.2},
-        {"yAbs_yy", 0.05},
-        {"yAbs_j1_30", 0.25},
-        {"yAbs_j2_30", 0.3},
-        {"Dphi_j_j_30", 0.25},
-        {"Dphi_j_j_30_signed", 0.25},
-        {"Dphi_yy_jj_30", 0.4},
-        {"pT_j1_30", 0.2},
-        {"pT_j2_30", 0.25},
-        {"cosTS_yy", 0.05},
-        {"m_jj_30", 0.25},
-        {"Dy_j_j_30", 0.3},
-        {"Dy_y_y", 0.05},
-        {"maxTau_yyj_30", 0.15},
-        {"sumTau_yyj_30", 0.15}
-      }, [=](const auto&){ return range; });
-      range = ranges(var.first);
+    if (ranges_map) {
+      try { range = ranges_map->at(var.first); } catch (...) { }
     }
 
     ya->SetRangeUser(-range,range);
@@ -513,7 +489,7 @@ int main(int argc, char* argv[]) {
       "#oplus Signal extraction",
       "#oplus Statistics"
     };
-    static const auto corr_labels = default_map<std::string>({
+    static const auto corr_labels = make_default_map<std::string>({
       { "jes_pu_rho", "Jet pileup suppression" },
       { "gen_model", "Theoretical modelling" },
       { "jes_flav_comp", "Jet flavour dependence" },
@@ -539,7 +515,7 @@ int main(int argc, char* argv[]) {
     leg.SetNColumns(2);
     tie(bands,
         !corr ? labels : (corr_selected | [i=0](auto* s) mutable {
-          return cat(i++ ? "#oplus " : "",corr_labels(*s));
+          return cat(i++ ? "#oplus " : "",corr_labels[*s]);
         }) << "#oplus Others"
       ) * [&leg](const auto& band, const std::string& lbl){
         leg.AddEntry(get<0>(band).get(),lbl.c_str(),"f");
