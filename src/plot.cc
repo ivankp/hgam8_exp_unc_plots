@@ -21,7 +21,6 @@
 #include "program_options.hh"
 
 #include "algebra.hh"
-#include "type_traits2.hh"
 #include "lists.hh"
 #include "default_map.hh"
 
@@ -101,7 +100,7 @@ struct read_to_map {
   void operator()(const char* arg, boost::optional<Map>& m) {
     m.emplace();
     std::ifstream f(arg);
-    for ( std::pair<typename Map::key_type, typename Map::mapped_type> x;
+    for ( rm_elements_const_t<typename Map::value_type> x;
           f >> x.first >> x.second; ) { m->emplace(std::move(x)); }
   }
 };
@@ -113,13 +112,13 @@ int main(int argc, char* argv[]) {
 
   try {
     using namespace ivanp::po;
-    program_options()
-      (&data_file_name,'f',"",req(),pos(1))
-      (&sig_fid_SM_file_name,"--sm","",pos(1))
-      (&burst,"--burst","")
-      (&corr,"--corr","")
-      (&ranges_map,{"--range","-r"},"",read_to_map{})
-      .parse(argc,argv);
+    if (program_options()
+      (data_file_name,'f',"",req(),pos(1))
+      (sig_fid_SM_file_name,"--SM","divide by σfidSM",pos(1))
+      (burst,"burst","")
+      (corr,"corr","")
+      (ranges_map,{"-r","--range"},"",read_to_map{})
+      .parse(argc,argv,true)) return 0;
   } catch (const std::exception& e) {
     cerr <<"\033[31m"<< e.what() <<"\033[0m"<< endl;
     return 1;
@@ -398,7 +397,6 @@ int main(int argc, char* argv[]) {
     //   cout << endl;
     // }
 
-    // transpose_container_t<decltype(uncs)> tuncs(uncs.front().size());
     std::vector<std::vector<double>> tuncs(uncs.front().size());
     for (unsigned i=0; i<uncs.front().size(); ++i) {
       tuncs[i].resize(uncs.size());

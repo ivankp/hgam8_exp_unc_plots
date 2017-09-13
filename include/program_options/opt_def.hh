@@ -1,10 +1,13 @@
 #ifndef IVANP_OPT_DEF_HH
 #define IVANP_OPT_DEF_HH
 
-#include "program_options/opt_parser.hh"
-#include "program_options/opt_init.hh"
+#include "program_options/fwd/opt_def.hh"
 
 namespace ivanp { namespace po {
+
+struct no_var_t { } no_var;
+template <typename T> struct is_no_var : std::false_type { };
+template <> struct is_no_var<no_var_t> : std::true_type { };
 
 // Opt def props ---------------------------------------------------
 
@@ -72,32 +75,6 @@ namespace detail {
 // and assigning new values to recepients via pointers
 // These are created as a result of calling program_options::operator()
 
-struct opt_def {
-  std::string name, descr;
-  unsigned count = 0;
-
-  opt_def(std::string&& descr): descr(std::move(descr)) { }
-  virtual ~opt_def() { }
-  virtual void parse(const char* arg) = 0;
-  virtual void as_switch() = 0;
-  virtual void default_init() = 0;
-
-  virtual bool is_switch() const noexcept = 0;
-  virtual bool is_multi() const noexcept = 0;
-  virtual bool is_pos() const noexcept = 0;
-  virtual bool is_pos_end() const noexcept = 0;
-  virtual bool is_req() const noexcept = 0;
-  virtual bool is_signed() const noexcept = 0;
-  virtual bool is_named() const noexcept = 0;
-
-  template <typename Props>
-  inline void set_name(Props&&, nothing) noexcept { }
-  template <typename Props, size_t I>
-  inline void set_name(Props&& props,
-    just<std::integral_constant<size_t,I>>
-  ) noexcept { name = std::move(std::get<I>(std::move(props)).name); }
-};
-
 template <typename T, typename... Props>
 class opt_def_impl final: public opt_def, Props... {
   T *x; // recepient of parsed value
@@ -125,16 +102,20 @@ public:
   static constexpr bool _is_switch = std::is_same<type,bool>::value;
 
   static_assert( !(_is_pos && _is_switch),
-    "\033[33mdefinition of positional switch option\033[0m" );
+    ASSERT_MSG("definition of positional switch option"));
 
 private:
   // parse ----------------------------------------------------------
-  template <typename U = parser_t> inline std::enable_if_t<
-    is_just<U>::value && !_is_switch>
+  template <typename P = parser_t> inline std::enable_if_t<
+    is_just<P>::value && !_is_switch>
   parse_impl(const char* arg) { parser_t::type::operator()(arg,*x); }
-  template <typename U = parser_t> inline std::enable_if_t<
-    is_nothing<U>::value && !_is_switch>
-  parse_impl(const char* arg) { ivanp::po::arg_parser(arg,*x); }
+  template <typename P = parser_t> inline std::enable_if_t<
+    is_nothing<P>::value && !_is_switch>
+  parse_impl(const char* arg) {
+    static_assert(!is_no_var<T>::value,
+      ASSERT_MSG("po::no_var variable requires a user-define parser"));
+    ivanp::po::arg_parser(arg,*x);
+  }
   template <bool S = _is_switch> static inline std::enable_if_t<S>
   parse_impl(const char* arg) noexcept { }
 
@@ -166,9 +147,14 @@ public:
   inline void default_init() { default_init_impl(); }
 
   inline bool is_switch() const noexcept { return _is_switch; }
+  inline bool is_switch_init() const noexcept {
+    return is_just<switch_init_t>::value;
+  }
 
   inline bool is_multi() const noexcept {
-    return is_just<multi_t>::value; // TODO: or T is a container
+    return disjunction< // allow `std::vector`s to automatically be multi
+        is_just<multi_t>, is_std_vector<T>
+      >::value;
   }
   inline bool is_pos() const noexcept { return _is_pos; }
   inline bool is_pos_end() const noexcept { return is_just<pos_t>::value; }

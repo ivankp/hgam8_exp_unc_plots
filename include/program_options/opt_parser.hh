@@ -1,14 +1,9 @@
 #ifndef IVANP_OPT_PARSER_HH
 #define IVANP_OPT_PARSER_HH
 
-#if __has_include(<boost/lexical_cast/try_lexical_convert.hpp>)
-#define PROGRAM_OPTIONS_BOOST_LEXICAL_CAST
-#include <boost/lexical_cast/try_lexical_convert.hpp>
-#else
-#include <sstream>
-#endif
-
+#include "program_options/fwd/opt_parser.hh"
 #include "maybe_valid.hh"
+#include "type_traits.hh"
 
 namespace ivanp { namespace po {
 
@@ -51,9 +46,9 @@ auto maybe_emplace = first_valid(
 
 #undef EMPLACE_EXPR
 
-template <typename Var, typename X>
+template <typename Cont, typename T>
 using can_emplace = is_just_value<decltype(maybe_emplace(
-  std::declval<Var&>(), std::declval<X&&>() ))>;
+  std::declval<Cont&>(), std::declval<T&&>() ))>;
 
 // 1. Emplace const char* ===========================================
 template <typename T>
@@ -68,53 +63,73 @@ template <typename T>
 inline enable_case<arg_parser_switch,1,T>
 arg_parser_impl(const char* arg, T& var) { maybe_emplace(var,arg); }
 
-// 2. Emplace value_type ============================================
+// 2. std:vector ====================================================
 template <typename T>
-struct arg_parser_switch<2,T>: maybe_is<
-  bind_first<can_emplace,T>::template type,
-  m_value_type<T> > { };
+struct arg_parser_switch<2,T>: is_std_vector<T> { };
 
 template <typename T>
 inline enable_case<arg_parser_switch,2,T>
 arg_parser_impl(const char* arg, T& var) {
-  typename T::value_type x;
+  var.emplace_back();
+  arg_parser(arg,var.back());
+}
+
+// 3. Emplace value_type ============================================
+template <typename T>
+struct arg_parser_switch<3,T>: maybe_is<
+  bind_first<can_emplace,T>::template type,
+  m_value_type<T> > { };
+
+template <typename T>
+inline enable_case<arg_parser_switch,3,T>
+arg_parser_impl(const char* arg, T& var) {
+  rm_elements_const_t<typename T::value_type> x;
   arg_parser(arg,x);
   maybe_emplace(var,std::move(x));
 }
 
-// 3. pair, array, tuple ============================================
+// 4. pair, array, tuple ============================================
 template <typename T>
-using tuple_size_t = decltype(std::tuple_size<T>::value);
+using tuple_size_t = decltype(std::tuple_size<std::decay_t<T>>::value);
 
 template <typename T>
-struct arg_parser_switch<3,T>: is_detected<tuple_size_t,T> { };
+struct arg_parser_switch<4,T>: is_detected<tuple_size_t,T> { };
 
 template <size_t I, typename T>
 inline std::enable_if_t<(I==std::tuple_size<T>::value)>
 parse_elem(const char*, const T&) noexcept {
-  static_assert(I>0,"use of type with tuple_size==0 in program options");
+  static_assert(I>0,
+    ASSERT_MSG("use of type with tuple_size==0 in program options"));
+}
+
+template <size_t I, typename T>
+inline decltype(auto) mget(T& tup) { // get if mutable
+  static_assert(!std::is_const<
+      std::remove_reference_t< std::tuple_element_t<I,T> > >::value,
+    ASSERT_MSG("const tuple_element type in program options"));
+  return std::get<I>(tup);
 }
 
 template <size_t I, typename T>
 inline std::enable_if_t<(I+1==std::tuple_size<T>::value)>
-parse_elem(const char* arg, T& tup) { arg_parser(arg,std::get<I>(tup)); }
+parse_elem(const char* arg, T& tup) { arg_parser(arg,mget<I>(tup)); }
 
 template <size_t I, typename T>
 inline std::enable_if_t<(I+1<std::tuple_size<T>::value)>
 parse_elem(const char* arg, T& tup) {
   int n = 0;
   while (arg[n]!=':' && arg[n]!='\0') ++n;
-  arg_parser(std::string(arg,n).c_str(),std::get<I>(tup));
+  arg_parser(std::string(arg,n).c_str(),mget<I>(tup));
   if (arg[n]!='\0') parse_elem<I+1>(arg+n+1,tup);
 }
 
 template <typename T>
-inline enable_case<arg_parser_switch,3,T>
+inline enable_case<arg_parser_switch,4,T>
 arg_parser_impl(const char* arg, T& var) { parse_elem<0>(arg,var); }
 
-// 4. lexical_cast or stream ========================================
+// 5. lexical_cast or stream ========================================
 template <typename T>
-inline enable_case<arg_parser_switch,4,T>
+inline enable_case<arg_parser_switch,5,T>
 arg_parser_impl(const char* arg, T& var) {
 #ifdef PROGRAM_OPTIONS_BOOST_LEXICAL_CAST
   if (boost::conversion::try_lexical_convert(arg,var)) return;
@@ -138,14 +153,17 @@ arg_parser_impl(const char* arg, T& var) {
     }
   }
 #endif
-  throw po::error(cat('\"',arg,"\" cannot be interpreted as ",type_str<T>()));
+  throw po::error('\"',arg,"\" cannot be interpreted as ",type_str<T>());
 #else
   std::istringstream(arg) >> var;
 #endif
 }
 
 // Explicit =========================================================
-template <> void arg_parser_impl<bool>(const char* arg, bool& var);
+template <>
+inline void arg_parser_impl<bool>(const char* arg, bool& var) {
+  arg_parser_impl_bool(arg,var);
+}
 
 } // end detail
 

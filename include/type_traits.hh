@@ -52,6 +52,25 @@ struct maybe_value_type<T, void_t<typename T::value_type> > {
 template <typename T>
 using m_value_type = typename detail::maybe_value_type<T>::type;
 
+// Remove const from tuple elements =================================
+template <typename T> struct rm_elements_const {
+  using type = T;
+};
+template <typename T1, typename T2>
+struct rm_elements_const<std::pair<T1,T2>> {
+  using type = std::pair<std::remove_const_t<T1>,std::remove_const_t<T2>>;
+};
+template <typename... Ts>
+struct rm_elements_const<std::tuple<Ts...>> {
+  using type = std::tuple<std::remove_const_t<Ts>...>;
+};
+template <typename T, size_t N>
+struct rm_elements_const<std::array<T,N>> {
+  using type = std::array<std::remove_const_t<T>,N>;
+};
+template <typename T>
+using rm_elements_const_t = typename rm_elements_const<T>::type;
+
 // Detect STD types =================================================
 template <typename T> struct is_tuple: std::false_type { };
 template <typename... T> struct is_tuple<std::tuple<T...>>: std::true_type { };
@@ -63,7 +82,6 @@ struct is_std_array<std::array<T,N>>: std::true_type { };
 template <typename T> struct is_std_vector: std::false_type { };
 template <typename T, typename Alloc>
 struct is_std_vector<std::vector<T,Alloc>>: std::true_type { };
-
 
 } // end namespace ivanp
 

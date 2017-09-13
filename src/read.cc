@@ -58,14 +58,14 @@ int main(int argc, char* argv[]) {
 
   try {
     using namespace ivanp::po;
-    program_options()
-      (&data_file_name,'f',"",req(),pos(1))
-      (&vals,{"-v","--vals"},"",pos(),multi())
-      (&prt_bins,"--prt-bins","")
-      (&prt_modes,"--prt-modes","")
-      (&prt_vals,"--prt-vals","")
-      (&no_warnings,"--no-warnings","")
-      .parse(argc,argv);
+    if (program_options()
+      (data_file_name,'f',"",req(),pos(1))
+      (vals,{"-v","--vals"},"",pos(),multi())
+      (prt_bins,"--prt-bins")
+      (prt_modes,"--prt-modes")
+      (prt_vals,"--prt-vals")
+      (no_warnings,"--no-warnings")
+      .parse(argc,argv,true)) return 0;
   } catch (const std::exception& e) {
     cerr <<"\033[31m"<< e.what() <<"\033[0m"<< endl;
     return 1;

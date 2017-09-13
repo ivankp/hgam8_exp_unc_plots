@@ -1,6 +1,8 @@
 #ifndef IVANP_OPT_MATCH_HH
 #define IVANP_OPT_MATCH_HH
 
+#include "program_options/fwd/opt_match.hh"
+
 #ifdef PROGRAM_OPTIONS_STD_REGEX
 #include <regex>
 #elif defined(PROGRAM_OPTIONS_BOOST_REGEX)
@@ -16,12 +18,6 @@ namespace detail {
 // These represent rules for matching program arguments with argument
 // definitions
 
-struct opt_match_base {
-  virtual bool operator()(const char* arg) const noexcept = 0;
-  virtual ~opt_match_base() { }
-  virtual std::string str() const noexcept = 0;
-};
-
 template <typename T> using oss_det = decltype(
   std::declval<std::ostringstream&>() << std::declval<const T&>() );
 template <typename U> constexpr bool can_print =
@@ -33,16 +29,15 @@ template <typename T>
 class opt_match final : public opt_match_base {
   T m; // matching rule
   template <typename U = T>
-  inline std::enable_if_t<!can_print<U>,std::string>
-  str_impl() const noexcept { return "?"; }
-  // { return cat('[',type_str<U>(),']'); }
-  template <typename U = T>
   inline std::enable_if_t<can_print<U>,std::string>
   str_impl() const noexcept {
     std::ostringstream ss;
     ss << m;
     return ss.str();
   };
+  template <typename U = T>
+  inline std::enable_if_t<!can_print<U>,std::string>
+  str_impl() const noexcept { return "λ"; }
 public:
   template <typename... Args>
   opt_match(Args&&... args): m(std::forward<Args>(args)...) { }
@@ -56,11 +51,13 @@ inline bool opt_match<char>::operator()(const char* arg) const noexcept {
 }
 template <>
 inline std::string opt_match<char>::str() const noexcept {
-  return {'-',m,'\0'};
+  return {'-',m};
 }
 
-template <> // defined in .cc
-bool opt_match<const char*>::operator()(const char* arg) const noexcept;
+template <>
+inline bool opt_match<const char*>::operator()(const char* arg) const noexcept {
+  return opt_match_impl_chars(arg,m);
+}
 template <>
 inline std::string opt_match<const char*>::str() const noexcept { return m; }
 
@@ -71,14 +68,14 @@ inline bool opt_match<std::string>::operator()(const char* arg) const noexcept {
 template <>
 inline std::string opt_match<std::string>::str() const noexcept { return m; }
 
-#ifdef _GLIBCXX_REGEX
+#ifdef PROGRAM_OPTIONS_STD_REGEX
 template <>
 inline bool opt_match<std::regex>::operator()(const char* arg) const noexcept {
   return std::regex_match(arg,m);
 }
 #endif
 
-#ifdef BOOST_RE_REGEX_HPP
+#ifdef PROGRAM_OPTIONS_BOOST_REGEX
 template <>
 inline bool opt_match<boost::regex>::operator()(const char* arg) const noexcept {
   return boost::regex_match(arg,m);
@@ -86,8 +83,6 @@ inline bool opt_match<boost::regex>::operator()(const char* arg) const noexcept 
 #endif
 
 // Argument type ----------------------------------------------------
-
-enum opt_type { long_opt, short_opt, context_opt };
 
 opt_type get_opt_type(const char* arg) noexcept;
 inline opt_type get_opt_type(const std::string& arg) noexcept {
@@ -105,16 +100,18 @@ inline opt_match_type make_opt_match(T&& x) {
     opt_match_tag<std::decay_t<T>>{});
 }
 
-template <typename T, typename Tag>
+template <typename T, typename Tag> // default factory
 opt_match_type make_opt_match_impl(T&& x, Tag) {
   using type = typename Tag::type;
   return { new opt_match<type>( std::forward<T>(x) ), context_opt };
 }
-template <typename T>
-opt_match_type make_opt_match_impl(T&& x, opt_match_tag<char>) noexcept {
+template <typename T> // <char> factory
+opt_match_type make_opt_match_impl(T&& x, opt_match_tag<char>) {
+  if (x=='\0') throw po::error("NULL character used as short option matcher");
+  if (x=='-') throw po::error("all dashes matches only as context option");
   return { new opt_match<char>( x ), short_opt };
 }
-template <typename T, typename TagT>
+template <typename T, typename TagT> // <string> factory
 std::enable_if_t<std::is_convertible<TagT,std::string>::value,opt_match_type>
 make_opt_match_impl(T&& x, opt_match_tag<TagT>) {
   const opt_type t = get_opt_type(x);
@@ -129,9 +126,10 @@ make_opt_match_impl(T&& x, opt_match_tag<TagT>) {
     return { new opt_match<regex_t>( std::forward<T>(x) ), t };
   else
 #endif
+  if (x[0]=='\0') throw po::error("NULL string used as option matcher");
   if (t==short_opt) {
     if (x[2]!='\0') throw po::error(
-      "short arg "+std::string(x)+" defined with more than one char");
+      "short arg ",x," defined with more than one char");
     return { new opt_match<char>( x[1] ), t };
   } else {
     return { new opt_match<TagT>( std::forward<T>(x) ), t };
