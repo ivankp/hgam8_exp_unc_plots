@@ -1,0 +1,21 @@
+N_j_30 0.4
+N_j_50 0.1
+pT_yy 0.06
+pTt_yy 0.05
+pT_yyjj_30 0.3
+HT_30 0.15
+yAbs_yy 0.05
+yAbs_j1_30 0.25
+yAbs_j2_30 0.3
+Dphi_j_j_30 0.25
+Dphi_j_j_30_signed 0.25
+Dphi_yy_jj_30 0.4
+pT_j1_30 0.2
+pT_j2_30 0.25
+cosTS_yy 0.05
+m_jj_30 0.25
+Dy_j_j_30 0.3
+Dy_y_y 0.04
+maxTau_yyj_30 0.15
+sumTau_yyj_30 0.15
+

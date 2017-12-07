@@ -374,12 +374,6 @@ int main(int argc, char* argv[]) {
       }
     };
 
-    // for (auto& unc : uncs) {
-    //   for (auto x : unc)
-    //     cout << ' ' << x;
-    //   cout << endl;
-    // }
-
     // partial sums in quadrature
     for (auto& unc : uncs)
       for (unsigned i=1; i<unc.size(); ++i)
@@ -387,14 +381,15 @@ int main(int argc, char* argv[]) {
 
     // divide by cross section
     tie(uncs,var.second) * [](auto& unc, const auto& b){
-      for (auto& u : unc) u /= b.xsec;
+      for (auto& u : unc) {
+        // TEST(u)
+        u /= b.xsec;
+      }
     };
 
-    // cout << endl;
     // for (auto& unc : uncs) {
-    //   for (auto x : unc)
-    //     cout << ' ' << x;
-    //   cout << endl;
+    //   for (auto& u : unc) cout << u << ' ';
+    //   cout << '\n';
     // }
 
     std::vector<std::vector<double>> tuncs(uncs.front().size());
@@ -439,8 +434,9 @@ int main(int argc, char* argv[]) {
     xa->SetTitle(at(tex,var.first,__LINE__).c_str());
     xa->SetTitleOffset(0.95);
     ya->SetTitleOffset(corr ? 0.9 : 0.7);
-    ya->SetTitle(("#it{#Delta#sigma}_{fid} / #it{#sigma}_{fid}"s
-      + (sig_fid_SM_file_name ? "^{SM}" : "")).c_str());
+    ya->SetTitle("#it{#Deltacf}/#it{cf}");
+    // ya->SetTitle(("#it{#Delta#sigma}_{fid} / #it{#sigma}_{fid}"s
+    //   + (sig_fid_SM_file_name ? "^{SM}" : "")).c_str());
     xa->SetTitleSize(0.06);
     xa->SetLabelSize(0.05);
     ya->SetTitleSize(0.065);
